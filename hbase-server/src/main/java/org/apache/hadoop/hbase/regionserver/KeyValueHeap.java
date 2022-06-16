@@ -80,14 +80,23 @@ public class KeyValueHeap extends NonReversedNonLazyKeyValueScanner
     this.comparator = comparator;
     this.scannersForDelayedClose = new ArrayList<>(scanners.size());
     if (!scanners.isEmpty()) {
+      // 1。生成优先队列
       this.heap = new PriorityQueue<>(scanners.size(), this.comparator);
+      /**
+       * 2. 多路归并，生成scanner的优先队列
+       * 根据不同scanner的第一个cell 按顺序来排
+       * 每次获取都是从优先队列拿scanner，再拿scanner的第一个，这样能保证整体的顺序
+       */
+      // 遍历StoreScanner
       for (KeyValueScanner scanner : scanners) {
+        // 把每个scanner 加入到heap优先队列
         if (scanner.peek() != null) {
           this.heap.add(scanner);
         } else {
           this.scannersForDelayedClose.add(scanner);
         }
       }
+      // 3。先设置最先的scanner（key最小）
       this.current = pollRealKV();
     }
   }
@@ -97,6 +106,7 @@ public class KeyValueHeap extends NonReversedNonLazyKeyValueScanner
     if (this.current == null) {
       return null;
     }
+    // 其实就是最先的scanner(StoreScanner)里面拿
     return this.current.peek();
   }
 
@@ -142,6 +152,7 @@ public class KeyValueHeap extends NonReversedNonLazyKeyValueScanner
       return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
     }
     InternalScanner currentAsInternal = (InternalScanner) this.current;
+    // 切到下个cell, 并把current写入result
     boolean moreCells = currentAsInternal.next(result, scannerContext);
     Cell pee = this.current.peek();
 
@@ -354,6 +365,7 @@ public class KeyValueHeap extends NonReversedNonLazyKeyValueScanner
           this.scannersForDelayedClose.add(kvScanner);
           throw ioe;
         }
+        // 获取当前scanner 第一个cell
         Cell curKV = kvScanner.peek();
         if (curKV != null) {
           KeyValueScanner nextEarliestScanner = heap.peek();
@@ -364,6 +376,7 @@ public class KeyValueHeap extends NonReversedNonLazyKeyValueScanner
 
           // Compare the current scanner to the next scanner. We try to avoid
           // putting the current one back into the heap if possible.
+          // 返回当前就是最先的scanner
           Cell nextKV = nextEarliestScanner.peek();
           if (nextKV == null || comparator.compare(curKV, nextKV) < 0) {
             // We already have the scanner with the earliest KV, so return it.
@@ -373,6 +386,7 @@ public class KeyValueHeap extends NonReversedNonLazyKeyValueScanner
           // Otherwise, put the scanner back into the heap and let it compete
           // against all other scanners (both those that have done a "real
           // seek" and a "lazy seek").
+          // scanner重新放回优先队列
           heap.add(kvScanner);
         } else {
           // Close the scanner because we did a real seek and found out there

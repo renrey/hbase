@@ -212,6 +212,7 @@ public final class TraceUtil {
   public static <R, T extends Throwable> R trace(final ThrowingCallable<R, T> callable,
     final Supplier<Span> spanSupplier) throws T {
     Span span = spanSupplier.get();
+    // 先spanSupplier, 再callable
     try (Scope ignored = span.makeCurrent()) {
       final R ret = callable.call();
       span.setStatus(StatusCode.OK);

@@ -113,12 +113,14 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
     } else {
       this.filter = null;
     }
+    // meta的走meta，不是就cell
     this.comparator = region.getCellComparator();
     /**
      * By default, calls to next/nextRaw must enforce the batch limit. Thus, construct a default
      * scanner context that can be used to enforce the batch limit in the event that a
      * ScannerContext is not specified during an invocation of next/nextRaw
      */
+    // scanner 上下文，初始设置一批条数
     defaultScannerContext = ScannerContext.newBuilder().setBatchLimit(scan.getBatch()).build();
     this.stopRow = scan.getStopRow();
     this.includeStopRow = scan.includeStopRow();
@@ -140,11 +142,13 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
       }
       scannerReadPoints.put(this, this.readPt);
     }
+    // 初始化下级scanner
     initializeScanners(scan, additionalScanners);
   }
 
   private void initializeScanners(Scan scan, List<KeyValueScanner> additionalScanners)
     throws IOException {
+    // 数量都是family数量
     // Here we separate all scanners into two lists - scanner that provide data required
     // by the filter to operate (scanners list) and all others (joinedScanners list).
     List<KeyValueScanner> scanners = new ArrayList<>(scan.getFamilyMap().size());
@@ -158,8 +162,11 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
     }
 
     try {
+      // 遍历当前的所有family
       for (Map.Entry<byte[], NavigableSet<byte[]>> entry : scan.getFamilyMap().entrySet()) {
+        // 1。 get当前family的store
         HStore store = region.getStore(entry.getKey());
+        // 返回StoreScanner（第2级），StoreScanner
         KeyValueScanner scanner = store.getScanner(scan, entry.getValue(), this.readPt);
         instantiatedScanners.add(scanner);
         if (
@@ -171,6 +178,10 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
           joinedScanners.add(scanner);
         }
       }
+      /**
+       *  初始化StoreHeap--- 通过上面生成的scanner
+       *  这个对象是获取数据的入口！！！
+       */
       initializeKVHeap(scanners, joinedScanners, region);
     } catch (Throwable t) {
       throw handleException(instantiatedScanners, t);
@@ -237,6 +248,7 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
   @Override
   public boolean next(List<Cell> outResults) throws IOException {
     // apply the batching limit by default
+    // 尽量获取一行的数据（返回条件的），但里面的cell是同一行的
     return next(outResults, defaultScannerContext);
   }
 
@@ -250,6 +262,7 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
     }
     region.startRegionOperation(Operation.SCAN);
     try {
+      // 尽量获取一行的数据（符合条件的），但里面的cell是同一行的
       return nextRaw(outResults, scannerContext);
     } finally {
       region.closeRegionOperation(Operation.SCAN);
@@ -269,9 +282,11 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
       throw new UnknownScannerException("Scanner was closed");
     }
     boolean moreValues = false;
+    // 第1次肯定没有（传入空result）
     if (outResults.isEmpty()) {
       // Usually outResults is empty. This is true when next is called
       // to handle scan or get operation.
+      // 尽量获取一行row的数据（不一定一行完整的，且是符合查询条件）
       moreValues = nextInternal(outResults, scannerContext);
     } else {
       List<Cell> tmpList = new ArrayList<>();
@@ -294,6 +309,7 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
     if (isFilterDoneInternal()) {
       moreValues = false;
     }
+    // 代表查询，还能继续有数据返回
     return moreValues;
   }
 
@@ -329,6 +345,9 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
     boolean tmpKeepProgress = scannerContext.getKeepProgress();
     // Scanning between column families and thus the scope is between cells
     LimitScope limitScope = LimitScope.BETWEEN_CELLS;
+    /**
+     * 这里循环是只要当前cell所属的row还有其他cell，就会循环获取，直到没有其他cell或者达到条件上限
+     */
     do {
       // Check for thread interrupt status in case we have been signaled from
       // #interruptRegionOperation.
@@ -338,10 +357,15 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
       // different column families. To do this, we toggle the keep progress flag on during calls
       // to the StoreScanner to ensure that any progress made thus far is not wiped away.
       scannerContext.setKeepProgress(true);
+      // 当前scanner切到下个cell
+      // 并把current写入result
       heap.next(results, scannerContext);
       scannerContext.setKeepProgress(tmpKeepProgress);
 
       nextKv = heap.peek();
+      /**
+       * 判断下一个跟当前拿到是否同一行
+       */
       moreCellsInRow = moreCellsInRow(nextKv, currentRowCell);
       if (!moreCellsInRow) {
         incrementCountOfRowsScannedMetric(scannerContext);
@@ -411,6 +435,7 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
     }
   }
 
+  // 尽量获取一行的cell数据，并且尽量是有数据返回的
   private boolean nextInternal(List<Cell> results, ScannerContext scannerContext)
     throws IOException {
     Preconditions.checkArgument(results.isEmpty(), "First parameter should be an empty list");
@@ -432,6 +457,8 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
     // Then we loop and try again. Otherwise, we must get out on the first iteration via return,
     // "true" if there's more data to read, "false" if there isn't (storeHeap is at a stop row,
     // and joinedHeap has no more data to read for the last row (if set, joinedContinuationRow).
+    // 这里循环的是，如果本次获取拿到row是没有数据（可能由于filter、查询条件），会进入下次循环继续获取
+    // 还有数据未读完返回true，没有可以读（到了stop、没有更多数据）返回false
     while (true) {
       resetProgress(scannerContext, initialBatchProgress, initialSizeProgress,
         initialHeapSizeProgress);
@@ -442,8 +469,13 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
       region.checkInterrupt();
 
       // Let's see what we have in the storeHeap.
+      /**
+       * 从storeHeap拿当前最先的cell
+       * ---其实就是最先的scanner里面拿
+       */
       Cell current = this.storeHeap.peek();
 
+      // 判断是否需要停止scan
       boolean shouldStop = shouldStop(current);
       // When has filter row is true it means that the all the cells for a particular row must be
       // read before a filtering decision can be made. This means that filters where hasFilterRow
@@ -482,11 +514,15 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
           if (hasFilterRow) {
             filter.filterRowCells(results);
           }
+          // 到达stop row，返回false停止
           return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
         }
 
         // Check if rowkey filter wants to exclude this row. If so, loop to next.
         // Technically, if we hit limits before on this row, we don't need this call.
+        /**
+         * 当前rowkey被filter排除, 代表当前row是被排除的
+         */
         if (filterRowKey(current)) {
           incrementCountOfRowsFilteredMetric(scannerContext);
           // early check, see HBASE-16296
@@ -497,6 +533,9 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
           // here we are filtering a row based purely on its row key, preventing us from calling
           // #populateResult. Thus, perform the necessary increment here to rows scanned metric
           incrementCountOfRowsScannedMetric(scannerContext);
+          /**
+           * 切换下个row（遍历当前row的cell）
+           */
           boolean moreRows = nextRow(scannerContext, current);
           if (!moreRows) {
             return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
@@ -507,11 +546,18 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
           if (scannerContext.checkTimeLimit(limitScope)) {
             return true;
           }
+          // 由于filter过滤当前row被过滤，进行下一次获取
           continue;
         }
 
         // Ok, we are good, let's try to get some results from the main heap.
+        /**
+         * 填充当前row的cell！！！
+         * 循环获取当前cell对应row的其他cell（尽量拿到完整一行数据），直到当前row没有其他cell或者到达限制条件
+         * 并写入result中
+         */
         populateResult(results, this.storeHeap, scannerContext, current);
+        // 达到限制
         if (scannerContext.checkAnyLimitReached(LimitScope.BETWEEN_CELLS)) {
           if (hasFilterRow) {
             throw new IncompatibleFilterException(
@@ -525,15 +571,20 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
         // #interruptRegionOperation.
         region.checkInterrupt();
 
+        // 获取下一个cell
         Cell nextKv = this.storeHeap.peek();
         shouldStop = shouldStop(nextKv);
         // save that the row was empty before filters applied to it.
-        final boolean isEmptyRow = results.isEmpty();
+        final boolean isEmptyRow = results.isEmpty(); // 上面的填充cell，没有数据(例如当前row没有指定的cell)
 
         // We have the part of the row necessary for filtering (all of it, usually).
         // First filter with the filterRow(List).
+        /**
+         * 对当前row进行filter过滤
+         */
         FilterWrapper.FilterRowRetCode ret = FilterWrapper.FilterRowRetCode.NOT_CALLED;
         if (hasFilterRow) {
+          // 对当前row已拿到的cell进行filter过滤
           ret = filter.filterRowCellsWithRet(results);
 
           // We don't know how the results have changed after being filtered. Must set progress
@@ -551,9 +602,15 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
           }
         }
 
+        /**
+         * 当前根据查询条件，不会有结果的情况处理
+         * 1。当前row 本次查询不会返回数据（例如没有需要cell）
+         * 2。当前row符合filter过滤
+         */
         if (isEmptyRow || ret == FilterWrapper.FilterRowRetCode.EXCLUDE || filterRow()) {
           incrementCountOfRowsFilteredMetric(scannerContext);
-          results.clear();
+          results.clear();// 清理（被filter过滤的情况）
+          // 切到下一行
           boolean moreRows = nextRow(scannerContext, current);
           if (!moreRows) {
             return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
@@ -566,6 +623,7 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
             if (scannerContext.checkTimeLimit(limitScope)) {
               return true;
             }
+            // 什么限制都没达到下，进行下一行的获取
             continue;
           }
           return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
@@ -602,6 +660,9 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
       // Finally, we are done with both joinedHeap and storeHeap.
       // Double check to prevent empty rows from appearing in result. It could be
       // the case when SingleColumnValueExcludeFilter is used.
+      /**
+       * 万一当前的row还是没数据返回，切下一行继续获取
+       */
       if (results.isEmpty()) {
         incrementCountOfRowsFilteredMetric(scannerContext);
         boolean moreRows = nextRow(scannerContext, current);
@@ -613,6 +674,7 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
         }
       }
 
+      // 最终返回
       if (shouldStop) {
         return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
       } else {
@@ -709,6 +771,9 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
   protected boolean nextRow(ScannerContext scannerContext, Cell curRowCell) throws IOException {
     assert this.joinedContinuationRow == null : "Trying to go to next row during joinedHeap read.";
     Cell next;
+    /**
+     * scanner 把当前row的cell遍历完
+     */
     while ((next = this.storeHeap.peek()) != null && CellUtil.matchingRows(next, curRowCell)) {
       // Check for thread interrupt status in case we have been signaled from
       // #interruptRegionOperation.

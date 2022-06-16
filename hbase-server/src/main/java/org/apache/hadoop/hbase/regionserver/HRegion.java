@@ -3106,6 +3106,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
   private RegionScannerImpl getScanner(Scan scan, List<KeyValueScanner> additionalScanners,
     long nonceGroup, long nonce) throws IOException {
     return TraceUtil.trace(() -> {
+      // 1. 之前前置准备（目前主要加region的读锁）
       startRegionOperation(Operation.SCAN);
       try {
         // Verify families are all valid
@@ -3119,8 +3120,10 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
             checkFamily(family);
           }
         }
+        // 2。 构建RegionScanner
         return instantiateRegionScanner(scan, additionalScanners, nonceGroup, nonce);
       } finally {
+        // 释放读锁
         closeRegionOperation(Operation.SCAN);
       }
     }, () -> createRegionSpan("Region.getScanner"));
@@ -3128,6 +3131,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
 
   protected RegionScannerImpl instantiateRegionScanner(Scan scan,
     List<KeyValueScanner> additionalScanners, long nonceGroup, long nonce) throws IOException {
+    // 返回正向or反向扫描
     if (scan.isReversed()) {
       if (scan.getFilter() != null) {
         scan.getFilter().setReversed(true);
@@ -7828,8 +7832,10 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
   }
 
   void prepareGet(final Get get) throws IOException {
+    // 是否当前region的范围的rowkey
     checkRow(get.getRow(), "Get");
     // Verify families are all valid
+    // 目标family是否当前table的
     if (get.hasFamilies()) {
       for (byte[] family : get.familySet()) {
         checkFamily(family);
@@ -8342,6 +8348,9 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
     if (this.closing.get()) {
       throw new NotServingRegionException(getRegionInfo().getRegionNameAsString() + " is closing");
     }
+    /**
+     * 本region 读锁
+     */
     lock(lock.readLock());
     // Update regionLockHolders ONLY for any startRegionOperation call that is invoked from
     // an RPC handler
@@ -8385,6 +8394,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
     }
     Thread thisThread = Thread.currentThread();
     regionLockHolders.remove(thisThread);
+    // 释放读锁
     lock.readLock().unlock();
     if (coprocessorHost != null) {
       coprocessorHost.postCloseRegionOperation(operation);

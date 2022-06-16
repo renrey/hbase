@@ -22,10 +22,13 @@ import static org.apache.hadoop.hbase.HConstants.DEFAULT_HBASE_SPLIT_WAL_MAX_SPL
 import static org.apache.hadoop.hbase.HConstants.HBASE_SPLIT_WAL_COORDINATED_BY_ZK;
 import static org.apache.hadoop.hbase.HConstants.HBASE_SPLIT_WAL_MAX_SPLITTER;
 import static org.apache.hadoop.hbase.util.DNS.UNSAFE_RS_HOSTNAME_KEY;
+<<<<<<< Updated upstream
 
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.context.Scope;
+=======
+>>>>>>> Stashed changes
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.management.MemoryUsage;
@@ -167,7 +170,6 @@ import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
 import org.apache.hbase.thirdparty.com.google.common.base.Throwables;
 import org.apache.hbase.thirdparty.com.google.common.cache.Cache;
@@ -182,7 +184,6 @@ import org.apache.hbase.thirdparty.com.google.protobuf.Service;
 import org.apache.hbase.thirdparty.com.google.protobuf.ServiceException;
 import org.apache.hbase.thirdparty.com.google.protobuf.TextFormat;
 import org.apache.hbase.thirdparty.com.google.protobuf.UnsafeByteOperations;
-
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.CoprocessorServiceCall;
@@ -474,6 +475,12 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
    * with the Master as much as possible. See {@link #startServices}.
    */
   public HRegionServer(final Configuration conf) throws IOException {
+    /**
+     * 通用创建
+     * netty group
+     * rpc服务器创建
+     * zk
+     */
     super(conf, "RegionServer"); // thread name
     final Span span = TraceUtil.createSpan("HRegionServer.cxtor");
     try (Scope ignored = span.makeCurrent()) {
@@ -502,6 +509,9 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
 
       regionServerAccounting = new RegionServerAccounting(conf);
 
+      /**
+       * block 缓存！！！
+       */
       blockCache = BlockCacheFactory.createBlockCache(conf);
       mobFileCache = new MobFileCache(conf);
 
@@ -512,11 +522,18 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
 
       // If no master in cluster, skip trying to track one or look for a cluster status.
       if (!this.masterless) {
+        /**
+         * 集群master 相关
+         */
         masterAddressTracker = new MasterAddressTracker(getZooKeeper(), this);
         masterAddressTracker.start();
       } else {
         masterAddressTracker = null;
       }
+      /**
+       * 启动zk
+       * 启动rpc服务（netty）！！！
+       */
       this.rpcServices.start(zooKeeper);
       span.setStatus(StatusCode.OK);
     } catch (Throwable t) {
@@ -763,6 +780,7 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     }
     try {
       // Do pre-registration initializations; zookeeper, lease threads, etc.
+      // 这个初始化主要还是集群相关的
       preRegistrationInitialization();
     } catch (Throwable e) {
       abort("Fatal exception during initialization", e);
@@ -780,6 +798,7 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
         // start up all Services. Use RetryCounter to get backoff in case Master is struggling to
         // come up.
         LOG.debug("About to register with Master.");
+<<<<<<< Updated upstream
         TraceUtil.trace(() -> {
           RetryCounterFactory rcf =
             new RetryCounterFactory(Integer.MAX_VALUE, this.sleeper.getPeriod(), 1000 * 60 * 5);
@@ -794,6 +813,24 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
               handleReportForDutyResponse(w);
               break;
             }
+=======
+        RetryCounterFactory rcf =
+          new RetryCounterFactory(Integer.MAX_VALUE, this.sleeper.getPeriod(), 1000 * 60 * 5);
+        RetryCounter rc = rcf.create();
+        while (keepLooping()) {
+          RegionServerStartupResponse w = reportForDuty();
+          if (w == null) {
+            long sleepTime = rc.getBackoffTimeAndIncrementAttempts();
+            LOG.warn("reportForDuty failed; sleeping {} ms and then retrying.", sleepTime);
+            this.sleeper.sleep(sleepTime);
+          } else {
+            /**
+             * 核心功能启动：！！！！！
+             * wal等
+             */
+            handleReportForDutyResponse(w);
+            break;
+>>>>>>> Stashed changes
           }
         }, "HRegionServer.registerWithMaster");
       }
@@ -819,6 +856,9 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
       long lastMsg = EnvironmentEdgeManager.currentTime();
       long oldRequestCount = -1;
       // The main run loop.
+      /**
+       * 正常运行，一直在这里循环
+       */
       while (!isStopped() && isHealthy()) {
         if (!isClusterUp()) {
           if (onlineRegions.isEmpty()) {
@@ -863,6 +903,7 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
       }
     }
 
+<<<<<<< Updated upstream
     final Span span = TraceUtil.createSpan("HRegionServer exiting main loop");
     try (Scope ignored = span.makeCurrent()) {
       if (this.leaseManager != null) {
@@ -879,6 +920,38 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
       if (mobFileCache != null) {
         mobFileCache.shutdown();
       }
+=======
+    /**
+     * 下面的是关闭的操作，执行到这里就是要关闭了==
+     */
+
+    if (this.leaseManager != null) {
+      this.leaseManager.closeAfterLeasesExpire();
+    }
+    if (this.splitLogWorker != null) {
+      splitLogWorker.stop();
+    }
+    stopInfoServer();
+    // Send cache a shutdown.
+    if (blockCache != null) {
+      blockCache.shutdown();
+    }
+    if (mobFileCache != null) {
+      mobFileCache.shutdown();
+    }
+
+    // Send interrupts to wake up threads if sleeping so they notice shutdown.
+    // TODO: Should we check they are alive? If OOME could have exited already
+    if (this.hMemManager != null) {
+      this.hMemManager.stop();
+    }
+    if (this.cacheFlusher != null) {
+      this.cacheFlusher.interruptIfNecessary();
+    }
+    if (this.compactSplitThread != null) {
+      this.compactSplitThread.interruptIfNecessary();
+    }
+>>>>>>> Stashed changes
 
       // Send interrupts to wake up threads if sleeping so they notice shutdown.
       // TODO: Should we check they are alive? If OOME could have exited already
@@ -1382,6 +1455,7 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
       // Set our ephemeral znode up in zookeeper now we have a name.
       createMyEphemeralNode();
 
+      // hdfs 相关
       if (updateRootDir) {
         // initialize file system by the config fs.defaultFS and hbase.rootdir from master
         initializeFileSystem();
@@ -1396,6 +1470,9 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
       // Save it in a file, this will allow to see if we crash
       ZNodeClearer.writeMyEphemeralNodeOnDisk(getMyEphemeralNodePath());
 
+      /**
+       * 设置WAL、复制（未启动）
+       */
       // This call sets up an initialized replication and WAL. Later we start it up.
       setupWALAndReplication();
       // Init in here rather than in constructor after thread name has been set
@@ -1414,6 +1491,9 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
       }
       // In here we start up the replication Service. Above we initialized it. TODO. Reconcile.
       // or make sense of it.
+      /**
+       * 启动复制
+       */
       startReplicationService();
 
       // Set up ZK
@@ -1757,6 +1837,7 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
    * by this hosting server. Worker logs the exception and exits.
    */
   private void startServices() throws IOException {
+    // 初始化基础线程
     if (!isStopped() && !isAborted()) {
       initializeThreads();
     }
@@ -1924,6 +2005,9 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     }
 
     // Memstore services.
+    /**
+     * 启动Memstore 管理器!!!!!!
+     */
     startHeapMemoryManager();
     // Call it after starting HeapMemoryManager.
     initializeMemStoreChunkCreator(hMemManager);
@@ -1931,15 +2015,20 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
 
   private void initializeThreads() {
     // Cache flushing thread.
+    // MemStore执行flush的线程？
     this.cacheFlusher = new MemStoreFlusher(conf, this);
 
     // Compaction thread
+    // Compaction的执行线程？
     this.compactSplitThread = new CompactSplit(this);
 
     // Background thread to check for compactions; needed if region has not gotten updates
     // in a while. It will take care of not checking too frequently on store-by-store basis.
+    // 定期检查是否需要compaction
     this.compactionChecker = new CompactionChecker(this, this.compactionCheckFrequency, this);
+    // memStore 定期flush
     this.periodicFlusher = new PeriodicMemStoreFlusher(this.flushCheckFrequency, this);
+    // 心跳续约
     this.leaseManager = new LeaseManager(this.threadWakeFrequency);
 
     final boolean isSlowLogTableEnabled = conf.getBoolean(HConstants.SLOW_LOG_SYS_TABLE_ENABLED_KEY,
@@ -2641,6 +2730,7 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     return Collections.unmodifiableCollection(regions);
   }
 
+  // 添加region到可用的
   @Override
   public void addRegion(HRegion region) {
     this.onlineRegions.put(region.getRegionInfo().getEncodedName(), region);
@@ -2807,6 +2897,10 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     Class<? extends HRegionServer> regionServerClass = (Class<? extends HRegionServer>) conf
       .getClass(HConstants.REGION_SERVER_IMPL, HRegionServer.class);
 
+    /**
+     * 实际执行：start
+     * @see org.apache.hadoop.hbase.regionserver.HRegionServerCommandLine#start()
+     */
     new HRegionServerCommandLine(regionServerClass).doMain(args);
   }
 
@@ -3034,6 +3128,7 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     throws NotServingRegionException {
     HRegion region = this.onlineRegions.get(encodedRegionName);
     if (region == null) {
+      // 本地没有时，如果正在move这个，就报错
       MovedRegionInfo moveInfo = getMovedRegion(encodedRegionName);
       if (moveInfo != null) {
         throw new RegionMovedException(moveInfo.getServerName(), moveInfo.getSeqNum());
@@ -3041,10 +3136,12 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
       Boolean isOpening = this.regionsInTransitionInRS.get(Bytes.toBytes(encodedRegionName));
       String regionNameStr =
         regionName == null ? encodedRegionName : Bytes.toStringBinary(regionName);
+      // 服务器还在加载这个region中
       if (isOpening != null && isOpening) {
         throw new RegionOpeningException(
           "Region " + regionNameStr + " is opening on " + this.serverName);
       }
+      // 服务器未加载
       throw new NotServingRegionException(
         "" + regionNameStr + " is not online on " + this.serverName);
     }

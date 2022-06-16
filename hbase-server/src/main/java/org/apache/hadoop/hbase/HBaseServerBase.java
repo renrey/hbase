@@ -239,6 +239,7 @@ public abstract class HBaseServerBase<R extends HBaseRpcServicesBase<?>> extends
 
   public HBaseServerBase(Configuration conf, String name) throws IOException {
     super(name); // thread name
+<<<<<<< Updated upstream
     final Span span = TraceUtil.createSpan("HBaseServerBase.cxtor");
     try (Scope ignored = span.makeCurrent()) {
       this.conf = conf;
@@ -287,6 +288,65 @@ public abstract class HBaseServerBase<R extends HBaseRpcServicesBase<?>> extends
         }
         clusterStatusTracker = new ClusterStatusTracker(zooKeeper, this);
         clusterStatusTracker.start();
+=======
+    this.conf = conf;
+    /**
+     * netty group
+     */
+    this.eventLoopGroupConfig =
+      NettyEventLoopGroupConfig.setup(conf, getClass().getSimpleName() + "-EventLoopGroup");
+    this.startcode = EnvironmentEdgeManager.currentTime();
+    this.userProvider = UserProvider.instantiate(conf);
+    this.msgInterval = conf.getInt("hbase.regionserver.msginterval", 3 * 1000);
+    this.sleeper = new Sleeper(this.msgInterval, this);
+    this.namedQueueRecorder = createNamedQueueRecord();
+    /**
+     * rpc接口服务
+     */
+    this.rpcServices = createRpcServices();
+    useThisHostnameInstead = getUseThisHostnameInstead(conf);
+    InetSocketAddress addr = rpcServices.getSocketAddress();
+    String hostName = StringUtils.isBlank(useThisHostnameInstead)
+      ? addr.getHostName()
+      : this.useThisHostnameInstead;
+    serverName = ServerName.valueOf(hostName, addr.getPort(), this.startcode);
+    // login the zookeeper client principal (if using security)
+    ZKAuthentication.loginClient(this.conf, HConstants.ZK_CLIENT_KEYTAB_FILE,
+      HConstants.ZK_CLIENT_KERBEROS_PRINCIPAL, hostName);
+    // login the server principal (if using secure Hadoop)
+    login(userProvider, hostName);
+    // init superusers and add the server principal (if using security)
+    // or process owner as default super user.
+    Superusers.initialize(conf);
+    /**
+     * zk watcher
+     */
+    zooKeeper =
+      new ZKWatcher(conf, getProcessName() + ":" + addr.getPort(), this, canCreateBaseZNode());
+
+    this.configurationManager = new ConfigurationManager();
+    setupWindows(conf, configurationManager);
+
+    /**
+     * 文件配置初始化！！！
+     */
+    initializeFileSystem();
+
+    // 所有定时执行的任务线程池
+    this.choreService = new ChoreService(getName(), true);
+    // 执行线程池
+    this.executorService = new ExecutorService(getName());
+
+    // 元数据缓存
+    this.metaRegionLocationCache = new MetaRegionLocationCache(zooKeeper);
+
+    // 集群协调
+    if (clusterMode()) {
+      if (
+        conf.getBoolean(HBASE_SPLIT_WAL_COORDINATED_BY_ZK, DEFAULT_HBASE_SPLIT_COORDINATED_BY_ZK)
+      ) {
+        csm = new ZkCoordinatedStateManager(this);
+>>>>>>> Stashed changes
       } else {
         csm = null;
         clusterStatusTracker = null;

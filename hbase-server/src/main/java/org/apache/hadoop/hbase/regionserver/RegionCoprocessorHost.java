@@ -1470,6 +1470,7 @@ public class RegionCoprocessorHost
   }
 
   public void postStartRegionOperation(final Operation op) throws IOException {
+    // 貌似只是扩展点，目前啥都没执行
     execOperation(coprocEnvironments.isEmpty() ? null : new RegionObserverOperationWithoutResult() {
       @Override
       public void call(RegionObserver observer) throws IOException {

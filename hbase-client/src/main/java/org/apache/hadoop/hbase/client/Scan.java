@@ -223,7 +223,7 @@ public class Scan extends Query {
    * @param get get to model scan after
    */
   public Scan(Get get) {
-    this.startRow = get.getRow();
+    this.startRow = get.getRow(); // get的rowKey 作为start
     this.includeStartRow = true;
     this.stopRow = get.getRow();
     this.includeStopRow = true;

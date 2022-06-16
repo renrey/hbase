@@ -133,7 +133,9 @@ public class DefaultMemStore extends AbstractMemStore {
    */
   public List<KeyValueScanner> getScanners(long readPt) throws IOException {
     List<KeyValueScanner> list = new ArrayList<>();
+    // 当前使用的写入数据的
     addToScanners(getActive(), readPt, list);
+    // 已经停止写入的但还在内存的
     addToScanners(getSnapshotSegments(), readPt, list);
     return list;
   }

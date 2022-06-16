@@ -538,6 +538,7 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
     if (scannerContext == null) {
       throw new IllegalArgumentException("Scanner context cannot be null");
     }
+    // 校验是否需要flush
     if (checkFlushed() && reopenAfterFlush()) {
       return scannerContext.setScannerState(NextState.MORE_VALUES).hasMoreValues();
     }

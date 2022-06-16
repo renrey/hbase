@@ -145,6 +145,10 @@ public abstract class HBaseRpcServicesBase<S extends HBaseServerBase<?>>
       conf.getBoolean(ByteBuffAllocator.ALLOCATOR_POOL_ENABLED_KEY, defaultReservoirEnabled());
     try {
       // use final bindAddress for this server.
+      /**
+       * 绑定地址、端口，生成rpc服务器
+       * getServices(): 提供的接口
+       */
       rpcServer = RpcServerFactory.createRpcServer(server, name, getServices(), bindAddress, conf,
         rpcSchedulerFactory.create(conf, this, server), reservoirEnabled);
     } catch (BindException be) {

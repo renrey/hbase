@@ -121,6 +121,9 @@ public class StoreFileScanner implements KeyValueScanner {
       new PriorityQueue<>(files.size(), StoreFileComparators.SEQ_ID);
     for (HStoreFile file : files) {
       // The sort function needs metadata so we need to open reader first before sorting the list.
+      /**
+       * 初始化文件的reader（读取器）
+       */
       file.initReader();
       sortedFiles.add(file);
     }

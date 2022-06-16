@@ -208,6 +208,7 @@ public class HeapMemoryManager {
   public void start(ChoreService service) {
     LOG.info("Starting, tuneOn={}", this.tunerOn);
     this.heapMemTunerChore = new HeapMemoryTunerChore();
+    // 提交一个HeapMemoryTunerChore，调度执行
     service.scheduleChore(heapMemTunerChore);
     if (tunerOn) {
       // Register HeapMemoryTuner as a memstore flush listener
@@ -252,6 +253,7 @@ public class HeapMemoryManager {
       super(server.getServerName() + "-HeapMemoryTunerChore", server, defaultChorePeriod);
       Class<? extends HeapMemoryTuner> tunerKlass = server.getConfiguration().getClass(
         HBASE_RS_HEAP_MEMORY_TUNER_CLASS, DefaultHeapMemoryTuner.class, HeapMemoryTuner.class);
+      // 堆内存大小调节器
       heapMemTuner = ReflectionUtils.newInstance(tunerKlass, server.getConfiguration());
       tunerContext.setOffheapMemStore(regionServerAccounting.isOffheap());
     }

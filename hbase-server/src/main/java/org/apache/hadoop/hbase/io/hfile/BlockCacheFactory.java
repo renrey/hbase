@@ -99,6 +99,7 @@ public final class BlockCacheFactory {
     if (l1Cache == null) {
       return null;
     }
+    // 是否使用外置存储做cache
     boolean useExternal = conf.getBoolean(EXTERNAL_BLOCKCACHE_KEY, EXTERNAL_BLOCKCACHE_DEFAULT);
     if (useExternal) {
       BlockCache l2CacheInstance = createExternalBlockcache(conf);
@@ -107,12 +108,14 @@ public final class BlockCacheFactory {
         : new InclusiveCombinedBlockCache(l1Cache, l2CacheInstance);
     } else {
       // otherwise use the bucket cache.
+      // 默认使用BucketCache
       BucketCache bucketCache = createBucketCache(conf);
       if (!conf.getBoolean("hbase.bucketcache.combinedcache.enabled", true)) {
         // Non combined mode is off from 2.0
         LOG.warn(
           "From HBase 2.0 onwards only combined mode of LRU cache and bucket cache is available");
       }
+      // 一般都是组合使用L1：LRU、L2：BucketCache
       return bucketCache == null ? l1Cache : new CombinedBlockCache(l1Cache, bucketCache);
     }
   }
@@ -126,6 +129,7 @@ public final class BlockCacheFactory {
     int blockSize = c.getInt(BLOCKCACHE_BLOCKSIZE_KEY, HConstants.DEFAULT_BLOCKSIZE);
     LOG.info("Allocating BlockCache size=" + StringUtils.byteDesc(cacheSize) + ", blockSize="
       + StringUtils.byteDesc(blockSize));
+    // 默认LRU
     if (policy.equalsIgnoreCase("LRU")) {
       return new LruBlockCache(cacheSize, blockSize, true, c);
     } else if (policy.equalsIgnoreCase("IndexOnlyLRU")) {

@@ -60,7 +60,15 @@ public class HRegionServerCommandLine extends ServerCommandLine {
           + " is false");
       } else {
         logProcessInfo(getConf());
+        /**
+         * 1。 创建对象（初始化）
+         * @see HRegionServer#HRegionServer(org.apache.hadoop.conf.Configuration)
+         */
         HRegionServer hrs = HRegionServer.constructRegionServer(regionServerClass, conf);
+        /**
+         * 2. 启动线程，执行
+         * @see org.apache.hadoop.hbase.regionserver.HRegionServer#run()
+         */
         hrs.start();
         hrs.join();
         if (hrs.isAborted()) {

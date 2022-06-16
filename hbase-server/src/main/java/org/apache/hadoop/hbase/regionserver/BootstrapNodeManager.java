@@ -123,6 +123,9 @@ public class BootstrapNodeManager {
       new RetryConfig().setBackoffPolicy(new ExponentialBackoffPolicyWithLimit()).setJitter(JITTER)
         .setSleepInterval(requestMasterMinIntervalSecs).setMaxSleepTime(requestMasterIntervalSecs)
         .setTimeUnit(TimeUnit.SECONDS));
+    /**
+     * 定时跟master通信
+     */
     executor.schedule(this::getFromMaster, getDelay(requestMasterMinIntervalSecs),
       TimeUnit.SECONDS);
   }

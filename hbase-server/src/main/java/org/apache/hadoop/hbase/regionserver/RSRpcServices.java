@@ -1158,8 +1158,11 @@ public class RSRpcServices extends HBaseRpcServicesBase<HRegionServer>
 
   // Directly invoked only for testing
   public RSRpcServices(final HRegionServer rs) throws IOException {
+    // 主要绑定监听地址、地址，创建rpc服务器
+    // 看getServices()：本服务提供的接口
     super(rs, rs.getProcessName());
     final Configuration conf = rs.getConfiguration();
+    // 一堆rpc请求处理限制的配置项
     rowSizeWarnThreshold =
       conf.getInt(HConstants.BATCH_ROWS_THRESHOLD_NAME, HConstants.BATCH_ROWS_THRESHOLD_DEFAULT);
     rejectRowsWithSizeOverThreshold =
@@ -2472,6 +2475,7 @@ public class RSRpcServices extends HBaseRpcServicesBase<HRegionServer>
       checkOpen();
       requestCount.increment();
       rpcGetRequestCount.increment();
+      // 1。获取目标region
       region = getRegion(request.getRegion());
       rejectIfInStandByState(region);
 
@@ -2497,6 +2501,7 @@ public class RSRpcServices extends HBaseRpcServicesBase<HRegionServer>
       }
       if (existence == null) {
         if (context != null) {
+          // 2。 执行get处理
           r = get(clientGet, (region), null, context);
         } else {
           // for test purpose
@@ -2553,6 +2558,7 @@ public class RSRpcServices extends HBaseRpcServicesBase<HRegionServer>
 
   private Result get(Get get, HRegion region, RegionScannersCloseCallBack closeCallBack,
     RpcCallContext context) throws IOException {
+    // 前置检查
     region.prepareGet(get);
     boolean stale = region.getRegionInfo().getReplicaId() != 0;
 
@@ -2567,6 +2573,9 @@ public class RSRpcServices extends HBaseRpcServicesBase<HRegionServer>
           stale);
       }
     }
+    /**
+     * 实际get是scan处理
+     */
     Scan scan = new Scan(get);
     if (scan.getLoadColumnFamiliesOnDemandValue() == null) {
       scan.setLoadColumnFamiliesOnDemand(region.isLoadingCfsOnDemandDefault());
@@ -2574,6 +2583,9 @@ public class RSRpcServices extends HBaseRpcServicesBase<HRegionServer>
     RegionScannerImpl scanner = null;
     try {
       scanner = region.getScanner(scan);
+      // 这里代表当前rowkey的
+      // 尽量获取rowkey那一行的数据, 有可能达到限制，需要分次返回
+      // results里就是当前rowkey的cell
       scanner.next(results);
     } finally {
       if (scanner != null) {
@@ -2599,6 +2611,7 @@ public class RSRpcServices extends HBaseRpcServicesBase<HRegionServer>
     }
     region.metricsUpdateForGet(results, before);
 
+    // 返回本次拿到rowkey的cell
     return Result.create(results, get.isCheckExistenceOnly() ? !results.isEmpty() : null, stale);
   }
 

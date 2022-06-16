@@ -966,8 +966,12 @@ public class HStore
     List<KeyValueScanner> memStoreScanners;
     this.storeEngine.readLock();
     try {
+      // 需要scan的HFile（就当前所有hfile）
       storeFilesToScan = this.storeEngine.getStoreFileManager().getFilesForScan(startRow,
         includeStartRow, stopRow, includeStopRow);
+      /**
+       * memStore内相关Scanner（都是SegmentScanner，有当前使用、作为快照停止写入的）
+       */
       memStoreScanners = this.memstore.getScanners(readPt);
     } finally {
       this.storeEngine.readUnlock();
@@ -979,6 +983,9 @@ public class HStore
       // TODO this used to get the store files in descending order,
       // but now we get them in ascending order, which I think is
       // actually more correct, since memstore get put at the end.
+      /**
+       *  StoreFileScanner
+       */
       List<StoreFileScanner> sfScanners = StoreFileScanner.getScannersForStoreFiles(
         storeFilesToScan, cacheBlocks, usePread, isCompaction, false, matcher, readPt);
       List<KeyValueScanner> scanners = new ArrayList<>(sfScanners.size() + 1);
@@ -1682,6 +1689,7 @@ public class HStore
       } else {
         scanInfo = getScanInfo();
       }
+      // 继续创建下级（2）scanner
       return createScanner(scan, scanInfo, targetCols, readPt);
     } finally {
       storeEngine.readUnlock();
