@@ -59,6 +59,7 @@ class NettyRpcServerRequestDecoder extends ChannelInboundHandlerAdapter {
     ByteBuf input = (ByteBuf) msg;
     // 4 bytes length field
     metrics.receivedBytes(input.readableBytes() + 4);
+    // 处理请求
     connection.process(input);
   }
 

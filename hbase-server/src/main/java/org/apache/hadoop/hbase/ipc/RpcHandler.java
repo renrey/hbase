@@ -81,6 +81,7 @@ public class RpcHandler extends Thread {
     try {
       while (running) {
         try {
+          // 从队列阻塞获取CallRunner后，执行CallRunner的run方法
           run(getCallRunner());
         } catch (InterruptedException e) {
           interrupted = true;
@@ -101,6 +102,7 @@ public class RpcHandler extends Thread {
     cr.setStatus(status);
     try {
       this.activeHandlerCount.incrementAndGet();
+      // 执行CallRunner的run方法
       cr.run();
     } catch (Throwable e) {
       if (e instanceof Error) {

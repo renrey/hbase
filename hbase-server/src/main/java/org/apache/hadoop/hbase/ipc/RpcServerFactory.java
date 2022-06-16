@@ -52,6 +52,7 @@ public class RpcServerFactory {
   public static RpcServer createRpcServer(final Server server, final String name,
     final List<BlockingServiceAndInterface> services, final InetSocketAddress bindAddress,
     Configuration conf, RpcScheduler scheduler, boolean reservoirEnabled) throws IOException {
+    // 默认是NettyRpcServer
     String rpcServerClass =
       conf.get(CUSTOM_RPC_SERVER_IMPL_CONF_KEY, NettyRpcServer.class.getName());
     StringBuilder servicesList = new StringBuilder();

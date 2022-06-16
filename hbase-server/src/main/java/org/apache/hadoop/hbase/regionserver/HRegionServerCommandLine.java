@@ -86,6 +86,7 @@ public class HRegionServerCommandLine extends ServerCommandLine {
     return 0;
   }
 
+  // 啓動類
   @Override
   public int run(String args[]) throws Exception {
     if (args.length != 1) {

@@ -233,6 +233,7 @@ public abstract class RpcExecutor {
   }
 
   public void start(final int port) {
+    // 启动处理请求的handler线程（RpcHandler）
     startHandlers(port);
   }
 
@@ -253,6 +254,7 @@ public abstract class RpcExecutor {
 
   protected void startHandlers(final int port) {
     List<BlockingQueue<CallRunner>> callQueues = getQueues();
+    // 启动处理请求的handler线程（RpcHandler）
     startHandlers(null, handlerCount, callQueues, 0, callQueues.size(), port, activeHandlerCount);
   }
 
@@ -278,10 +280,12 @@ public abstract class RpcExecutor {
       ? 1.0
       : conf.getDouble(HConstants.REGION_SERVER_HANDLER_ABORT_ON_ERROR_PERCENT,
         HConstants.DEFAULT_REGION_SERVER_HANDLER_ABORT_ON_ERROR_PERCENT);
+    // 创建并启动处理的handler线程
     for (int i = 0; i < numHandlers; i++) {
       final int index = qindex + (i % qsize);
       String name = "RpcServer." + threadPrefix + ".handler=" + handlers.size() + ",queue=" + index
         + ",port=" + port;
+      // 创建RpcHandler的方法！！！重写
       RpcHandler handler = getHandler(name, handlerFailureThreshhold, handlerCount,
         callQueues.get(index), activeHandlerCount, failedHandlerCount, abortable);
       handler.start();

@@ -80,6 +80,7 @@ public class SimpleRpcScheduler extends RpcScheduler implements ConfigurationObs
       conf.get(RpcExecutor.CALL_QUEUE_TYPE_CONF_KEY, RpcExecutor.CALL_QUEUE_TYPE_CONF_DEFAULT);
     float callqReadShare = conf.getFloat(RWQueueRpcExecutor.CALL_QUEUE_READ_SHARE_CONF_KEY, 0);
 
+    // 默认FastPathBalancedQueueRpcExecutor
     if (callqReadShare > 0) {
       // at least 1 read handler and 1 write handler
       callExecutor = new FastPathRWQueueRpcExecutor("default.FPRWQ", Math.max(2, handlerCount),
@@ -163,6 +164,7 @@ public class SimpleRpcScheduler extends RpcScheduler implements ConfigurationObs
 
   @Override
   public void start() {
+    // 启动处理请求的handler线程（RpcHandler）
     callExecutor.start(port);
     if (priorityExecutor != null) {
       priorityExecutor.start(port);
@@ -209,6 +211,8 @@ public class SimpleRpcScheduler extends RpcScheduler implements ConfigurationObs
     } else if (replicationExecutor != null && level == HConstants.REPLICATION_QOS) {
       return replicationExecutor.dispatch(callTask);
     } else {
+      // FastPathBalancedQueueRpcExecutor
+      // 把请求交给callExecutor处理
       return callExecutor.dispatch(callTask);
     }
   }

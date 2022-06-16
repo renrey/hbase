@@ -87,6 +87,7 @@ class NettyServerRpcConnection extends ServerRpcConnection {
       if (useSasl) {
         saslReadAndProcess(buf);
       } else {
+        // 处理请求
         processOneRpc(buf);
       }
     } catch (Exception e) {

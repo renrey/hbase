@@ -382,6 +382,12 @@ public abstract class RpcServer implements RpcServerInterface, ConfigurationObse
       // get an instance of the method arg type
       HBaseRpcController controller = new HBaseRpcControllerImpl(call.getCellScanner());
       controller.setCallTimeout(call.getTimeout());
+      /**
+       * 阻塞地在请求的Service执行对应的方法
+       * 实际上这里的service是代理，最后全都是转发到服务端性质的Service上
+       * 如
+       * @see RSRpcServices#get(org.apache.hbase.thirdparty.com.google.protobuf.RpcController, org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.GetRequest)
+       */
       Message result = call.getService().callBlockingMethod(md, controller, param);
       long receiveTime = call.getReceiveTime();
       long startTime = call.getStartTime();

@@ -117,6 +117,7 @@ public class NettyRpcServer extends RpcServer {
       throw new InterruptedIOException(e.getMessage());
     }
     initReconfigurable(conf);
+    // SimpleRpcScheduler
     this.scheduler.init(new RpcSchedulerContext(this));
   }
 
@@ -141,6 +142,7 @@ public class NettyRpcServer extends RpcServer {
     }
     this.authManager = new ServiceAuthorizationManager();
     HBasePolicyProvider.init(conf, authManager);
+    // 启动scheduler，一些请求后台处理线程启动
     scheduler.start();
     started = true;
   }

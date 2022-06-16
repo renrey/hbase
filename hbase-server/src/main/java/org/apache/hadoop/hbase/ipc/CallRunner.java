@@ -121,6 +121,9 @@ public class CallRunner {
             "Server " + (address != null ? address : "(channel closed)") + " is not running yet");
         }
         // make the call
+        /**
+         * 真正处理请求
+         */
         resultPair = this.rpcServer.call(call, this.status);
       } catch (TimeoutIOException e) {
         RpcServer.LOG.warn("Can not complete this request in time, drop it: {}", call);
@@ -157,7 +160,11 @@ public class CallRunner {
       // Set the response
       Message param = resultPair != null ? resultPair.getFirst() : null;
       CellScanner cells = resultPair != null ? resultPair.getSecond() : null;
+      // 设置响应
       call.setResponse(param, cells, errorThrowable, error);
+      /**
+       * 发送响应
+       */
       call.sendResponseIfReady();
       // don't touch `span` here because its status and `end()` are managed in `call#setResponse()`
     } catch (OutOfMemoryError e) {

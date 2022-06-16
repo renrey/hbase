@@ -148,6 +148,7 @@ public abstract class HBaseRpcServicesBase<S extends HBaseServerBase<?>>
       /**
        * 绑定地址、端口，生成rpc服务器
        * getServices(): 提供的接口
+       * 创建server默认NettyRpcServer
        */
       rpcServer = RpcServerFactory.createRpcServer(server, name, getServices(), bindAddress, conf,
         rpcSchedulerFactory.create(conf, this, server), reservoirEnabled);

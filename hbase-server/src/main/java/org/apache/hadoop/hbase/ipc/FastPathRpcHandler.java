@@ -47,13 +47,15 @@ public class FastPathRpcHandler extends RpcHandler {
   protected CallRunner getCallRunner() throws InterruptedException {
     // Get a callrunner if one in the Q.
     CallRunner cr = this.q.poll();
+    // 没有需要处理的CallRunner
     if (cr == null) {
       // Else, if a fastPathHandlerStack present and no callrunner in Q, register ourselves for
       // the fastpath handoff done via fastPathHandlerStack.
+      // 把当前handler放入fastPathHandlerStack（代表自己空闲）
       if (this.fastPathHandlerStack != null) {
         this.fastPathHandlerStack.push(this);
         this.semaphore.acquire();
-        cr = this.loadedCallRunner;
+        cr = this.loadedCallRunner; // 放入栈后再获取一次，看有没有把请求加入到这个空闲handler处理
         this.loadedCallRunner = null;
       } else {
         // No fastpath available. Block until a task comes available.

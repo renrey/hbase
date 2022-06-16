@@ -441,6 +441,7 @@ abstract class ServerRpcConnection implements Closeable {
 
   public void processOneRpc(ByteBuff buf) throws IOException, InterruptedException {
     if (connectionHeaderRead) {
+      // 处理请求
       processRequest(buf);
     } else {
       processConnectionHeader(buf);
@@ -692,9 +693,15 @@ abstract class ServerRpcConnection implements Closeable {
       if (header.hasTimeout() && header.getTimeout() > 0) {
         timeout = Math.max(this.rpcServer.minClientRequestTimeout, header.getTimeout());
       }
+      // 生成请求的ServerCall
+      /**
+       * 详细的请求对象（请求接口，非原始信息）
+       *
+       */
       ServerCall<?> call = createCall(id, this.service, md, header, param, cellScanner,
         totalRequestSize, this.addr, timeout, this.callCleanup);
 
+      // 通过scheduler转发找到一个RpcHandler线程处理请求的（CallRunner）
       if (this.rpcServer.scheduler.dispatch(new CallRunner(this.rpcServer, call))) {
         // unset span do that it's not closed in the finally block
         span = null;
