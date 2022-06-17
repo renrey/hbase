@@ -246,7 +246,7 @@ public abstract class HBaseServerBase<R extends HBaseRpcServicesBase<?>> extends
     this.sleeper = new Sleeper(this.msgInterval, this);
     this.namedQueueRecorder = createNamedQueueRecord();
     /**
-     * rpc接口服务
+     * rpc接口服务 (netty Server、 请求处理线程池)
      */
     this.rpcServices = createRpcServices();
     useThisHostnameInstead = getUseThisHostnameInstead(conf);

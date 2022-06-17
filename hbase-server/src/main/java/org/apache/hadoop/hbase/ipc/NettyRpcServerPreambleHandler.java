@@ -41,7 +41,9 @@ class NettyRpcServerPreambleHandler extends SimpleChannelInboundHandler<ByteBuf>
 
   @Override
   protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) throws Exception {
+    // 创建本地的链接对象
     NettyServerRpcConnection conn = createNettyServerRpcConnection(ctx.channel());
+    // 分配空间、读取消息
     ByteBuffer buf = ByteBuffer.allocate(msg.readableBytes());
     msg.readBytes(buf);
     buf.flip();
@@ -50,8 +52,10 @@ class NettyRpcServerPreambleHandler extends SimpleChannelInboundHandler<ByteBuf>
       return;
     }
     ChannelPipeline p = ctx.pipeline();
+    // 把链接对象放到2个decoder中
     ((NettyRpcFrameDecoder) p.get("frameDecoder")).setConnection(conn);
     ((NettyRpcServerRequestDecoder) p.get("decoder")).setConnection(conn);
+    // 删掉前置handler（就是第一次发送请求才处理，这条链接后面都不用进入这里处理了）
     p.remove(this);
     p.remove("preambleDecoder");
   }

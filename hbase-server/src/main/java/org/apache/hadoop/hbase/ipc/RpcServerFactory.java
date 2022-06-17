@@ -56,6 +56,7 @@ public class RpcServerFactory {
     String rpcServerClass =
       conf.get(CUSTOM_RPC_SERVER_IMPL_CONF_KEY, NettyRpcServer.class.getName());
     StringBuilder servicesList = new StringBuilder();
+    // 遍历需要的接口
     for (BlockingServiceAndInterface s : services) {
       ServiceDescriptor sd = s.getBlockingService().getDescriptorForType();
       if (sd == null) continue; // Can be null for certain tests like TestTokenAuthentication
@@ -63,6 +64,10 @@ public class RpcServerFactory {
       servicesList.append(sd.getFullName());
     }
     LOG.info("Creating " + rpcServerClass + " hosting " + servicesList);
+    /**
+     * 创建server类
+     * @see NettyRpcServer#NettyRpcServer(org.apache.hadoop.hbase.Server, java.lang.String, java.util.List, java.net.InetSocketAddress, org.apache.hadoop.conf.Configuration, org.apache.hadoop.hbase.ipc.RpcScheduler, boolean)
+     */
     return ReflectionUtils.instantiateWithCustomCtor(rpcServerClass,
       new Class[] { Server.class, String.class, List.class, InetSocketAddress.class,
         Configuration.class, RpcScheduler.class, boolean.class },

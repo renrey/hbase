@@ -383,8 +383,8 @@ public abstract class RpcServer implements RpcServerInterface, ConfigurationObse
       HBaseRpcController controller = new HBaseRpcControllerImpl(call.getCellScanner());
       controller.setCallTimeout(call.getTimeout());
       /**
-       * 阻塞地在请求的Service执行对应的方法
-       * 实际上这里的service是代理，最后全都是转发到服务端性质的Service上
+       * 阻塞调用，本次请求的处理Service，执行对应的方法
+       * ---- 实际上这里的service是代理，最后全都是转发到服务端性质的Service上
        * 如
        * @see RSRpcServices#get(org.apache.hbase.thirdparty.com.google.protobuf.RpcController, org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.GetRequest)
        */

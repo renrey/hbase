@@ -119,6 +119,9 @@ public abstract class HBaseRpcServicesBase<S extends HBaseServerBase<?>>
     Configuration conf = server.getConfiguration();
     final RpcSchedulerFactory rpcSchedulerFactory;
     try {
+      /**
+       * rpc请求逻辑处理的线程池（网络相关由netty负责）
+       */
       rpcSchedulerFactory = getRpcSchedulerFactoryClass(conf).asSubclass(RpcSchedulerFactory.class)
         .getDeclaredConstructor().newInstance();
     } catch (NoSuchMethodException | InvocationTargetException | InstantiationException
@@ -146,9 +149,8 @@ public abstract class HBaseRpcServicesBase<S extends HBaseServerBase<?>>
     try {
       // use final bindAddress for this server.
       /**
-       * 绑定地址、端口，生成rpc服务器
-       * getServices(): 提供的接口
-       * 创建server默认NettyRpcServer
+       * 绑定地址、端口，生成rpc服务器(NettyRpcServer)
+       * getServices(): 提供的接口, 通过把自身的实现绑定接口的代理类里（这里就可以调用实现类）
        */
       rpcServer = RpcServerFactory.createRpcServer(server, name, getServices(), bindAddress, conf,
         rpcSchedulerFactory.create(conf, this, server), reservoirEnabled);
@@ -194,6 +196,9 @@ public abstract class HBaseRpcServicesBase<S extends HBaseServerBase<?>>
     } catch (KeeperException e) {
       LOG.error("ZooKeeper permission watcher initialization failed", e);
     }
+    /**
+     * netty、scheduler
+     */
     rpcServer.start();
   }
 

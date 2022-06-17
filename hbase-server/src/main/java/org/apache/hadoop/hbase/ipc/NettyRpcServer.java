@@ -84,6 +84,9 @@ public class NettyRpcServer extends RpcServer {
       eventLoopGroup = config.group();
       channelClass = config.serverChannelClass();
     } else {
+      /**
+       * Master 节点只能用NioEventLoopGroup
+       */
       int threadCount = server == null
         ? EVENTLOOP_THREADCOUNT_DEFAULT
         : server.getConfiguration().getInt(HBASE_NETTY_EVENTLOOP_RPCSERVER_THREADCOUNT_KEY,
@@ -101,10 +104,17 @@ public class NettyRpcServer extends RpcServer {
         @Override
         protected void initChannel(Channel ch) throws Exception {
           ChannelPipeline pipeline = ch.pipeline();
+          /**
+           * preambleDecoder、preambleHandler是这个连接第一次请求才会处理，后面就不会了（处理了移除了handler）
+           * --- 主要创建连接信息，放到后面的handler
+           */
           FixedLengthFrameDecoder preambleDecoder = new FixedLengthFrameDecoder(6);
           preambleDecoder.setSingleDecode(true);
           pipeline.addLast("preambleDecoder", preambleDecoder);
           pipeline.addLast("preambleHandler", createNettyRpcServerPreambleHandler());
+          /**
+           * 正常处理的handler
+           */
           pipeline.addLast("frameDecoder", new NettyRpcFrameDecoder(maxRequestSize));
           pipeline.addLast("decoder", new NettyRpcServerRequestDecoder(allChannels, metrics));
           pipeline.addLast("encoder", new NettyRpcServerResponseEncoder(metrics));
@@ -143,6 +153,10 @@ public class NettyRpcServer extends RpcServer {
     this.authManager = new ServiceAuthorizationManager();
     HBasePolicyProvider.init(conf, authManager);
     // 启动scheduler，一些请求后台处理线程启动
+    /**
+     *启动scheduler，一些请求后台处理线程启动
+     * 1. rpc请求处理线程池
+     */
     scheduler.start();
     started = true;
   }

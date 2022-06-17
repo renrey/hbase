@@ -48,11 +48,13 @@ public class BalancedQueueRpcExecutor extends RpcExecutor {
     final Configuration conf, final Abortable abortable) {
     super(name, handlerCount, callQueueType, maxQueueLength, priority, conf, abortable);
     initializeQueues(this.numCallQueues);
+    // 默认随机
     this.balancer = getBalancer(name, conf, getQueues());
   }
 
   @Override
   public boolean dispatch(final CallRunner callTask) {
+    // 默认随机的balancer
     int queueIndex = balancer.getNextQueue(callTask);
     BlockingQueue<CallRunner> queue = queues.get(queueIndex);
     // that means we can overflow by at most <num reader> size (5), that's ok

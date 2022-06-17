@@ -444,6 +444,7 @@ abstract class ServerRpcConnection implements Closeable {
       // 处理请求
       processRequest(buf);
     } else {
+      // header处理
       processConnectionHeader(buf);
       this.connectionHeaderRead = true;
       if (rpcServer.needAuthorization() && !authorizeConnection()) {
@@ -490,6 +491,9 @@ abstract class ServerRpcConnection implements Closeable {
     }
     String serviceName = connectionHeader.getServiceName();
     if (serviceName == null) throw new EmptyServiceNameException();
+    /**
+     * 获取本次请求，需要实际处理的service接口的实现类代理对象
+     */
     this.service = RpcServer.getService(this.rpcServer.services, serviceName);
     if (this.service == null) throw new UnknownServiceException(serviceName);
     setupCellBlockCodecs(this.connectionHeader);
@@ -701,7 +705,7 @@ abstract class ServerRpcConnection implements Closeable {
       ServerCall<?> call = createCall(id, this.service, md, header, param, cellScanner,
         totalRequestSize, this.addr, timeout, this.callCleanup);
 
-      // 通过scheduler转发找到一个RpcHandler线程处理请求的（CallRunner）
+      // 通过scheduler转发找到一个RpcHandler线程, 来处理这个请求（CallRunner）
       if (this.rpcServer.scheduler.dispatch(new CallRunner(this.rpcServer, call))) {
         // unset span do that it's not closed in the finally block
         span = null;

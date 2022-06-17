@@ -61,11 +61,15 @@ class NettyServerRpcConnection extends ServerRpcConnection {
   void process(final ByteBuf buf) throws IOException, InterruptedException {
     if (connectionHeaderRead) {
       this.callCleanup = buf::release;
+      // 处理请求
       process(new SingleByteBuff(buf.nioBuffer()));
     } else {
+      // 第1次肯定这里
+      // 为header分配空间、读取
       ByteBuffer connectionHeader = ByteBuffer.allocate(buf.readableBytes());
       buf.readBytes(connectionHeader);
       buf.release();
+      // 处理header
       process(connectionHeader);
     }
   }
@@ -87,7 +91,7 @@ class NettyServerRpcConnection extends ServerRpcConnection {
       if (useSasl) {
         saslReadAndProcess(buf);
       } else {
-        // 处理请求
+        // 处理请求、header
         processOneRpc(buf);
       }
     } catch (Exception e) {

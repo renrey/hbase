@@ -72,7 +72,7 @@ public class FastPathBalancedQueueRpcExecutor extends BalancedQueueRpcExecutor {
     // 获取空闲的Handler线程
     FastPathRpcHandler handler = popReadyHandler();
     /**
-     * 优先选空闲的Handler线程处理，没有再按正常的方式叫入对应的Handler的阻塞队列中
+     * 优先选空闲的Handler线程处理，没有再按正常的方式（随机）放入对应的Handler的阻塞队列中
      */
     return handler != null ? handler.loadCallRunner(callTask) : super.dispatch(callTask);
   }

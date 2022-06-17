@@ -524,6 +524,7 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
       /**
        * 启动zk
        * 启动rpc服务（netty）！！！
+       * rpc scheduler
        */
       this.rpcServices.start(zooKeeper);
     } catch (Throwable t) {
@@ -664,6 +665,9 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
       bootstrapNodeManager = new BootstrapNodeManager(asyncClusterConnection, masterAddressTracker);
       regionReplicationBufferManager = new RegionReplicationBufferManager(this);
       // Setup RPC client for master communication
+      /**
+       * 发送rpc的客户端
+       */
       this.rpcClient = asyncClusterConnection.getRpcClient();
     } catch (Throwable t) {
       // Call stop if error or process will stick around for ever since server
@@ -763,6 +767,9 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     try {
       // Do pre-registration initializations; zookeeper, lease threads, etc.
       // 这个初始化主要还是集群相关的
+      /**
+       * rpc请求的客户端
+       */
       preRegistrationInitialization();
     } catch (Throwable e) {
       abort("Fatal exception during initialization", e);
@@ -2538,6 +2545,9 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
         + rpcServices.getSocketAddress().getPort() + ", startcode=" + this.startcode);
       long now = EnvironmentEdgeManager.currentTime();
       int port = rpcServices.getSocketAddress().getPort();
+      /**
+       * 当前节点启动上报的请求
+       */
       RegionServerStartupRequest.Builder request = RegionServerStartupRequest.newBuilder();
       if (!StringUtils.isBlank(useThisHostnameInstead)) {
         request.setUseThisHostnameInstead(useThisHostnameInstead);
@@ -2545,6 +2555,7 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
       request.setPort(port);
       request.setServerStartCode(this.startcode);
       request.setServerCurrentTime(now);
+      // 发送请求
       result = rss.regionServerStartup(null, request.build());
     } catch (ServiceException se) {
       IOException ioe = ProtobufUtil.getRemoteException(se);
