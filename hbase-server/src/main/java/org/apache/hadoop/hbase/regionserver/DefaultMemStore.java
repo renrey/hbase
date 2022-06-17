@@ -133,6 +133,7 @@ public class DefaultMemStore extends AbstractMemStore {
    */
   public List<KeyValueScanner> getScanners(long readPt) throws IOException {
     List<KeyValueScanner> list = new ArrayList<>();
+    // 这里是以当前mvcc的readPoint作为终点的scanner
     // 当前使用的写入数据的
     addToScanners(getActive(), readPt, list);
     // 已经停止写入的但还在内存的

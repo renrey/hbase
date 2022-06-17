@@ -140,6 +140,7 @@ public class StoreFileReader {
    */
   public StoreFileScanner getStoreFileScanner(boolean cacheBlocks, boolean pread,
     boolean isCompaction, long readPt, long scannerOrder, boolean canOptimizeForNonNullColumn) {
+    // HFileScannerImpl
     return new StoreFileScanner(this, getScanner(cacheBlocks, pread, isCompaction), !isCompaction,
       reader.hasMVCCInfo(), readPt, scannerOrder, canOptimizeForNonNullColumn);
   }

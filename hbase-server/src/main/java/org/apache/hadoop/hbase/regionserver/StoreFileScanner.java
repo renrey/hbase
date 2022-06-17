@@ -87,7 +87,7 @@ public class StoreFileScanner implements KeyValueScanner {
     boolean hasMVCC, long readPt, long scannerOrder, boolean canOptimizeForNonNullColumn) {
     this.readPt = readPt;
     this.reader = reader;
-    this.hfs = hfs;
+    this.hfs = hfs;// HFileScannerImpl
     this.enforceMVCC = useMVCC;
     this.hasMVCCInfo = hasMVCC;
     this.scannerOrder = scannerOrder;
@@ -132,6 +132,8 @@ public class StoreFileScanner implements KeyValueScanner {
       for (int i = 0, n = files.size(); i < n; i++) {
         HStoreFile sf = sortedFiles.remove();
         StoreFileScanner scanner;
+        // get使用pread
+        // pread用来（使用同一个文件的句柄时，文件定位+读写的线程安全问题）
         if (usePread) {
           scanner = sf.getPreadScanner(cacheBlocks, readPt, i, canOptimizeForNonNullColumn);
         } else {

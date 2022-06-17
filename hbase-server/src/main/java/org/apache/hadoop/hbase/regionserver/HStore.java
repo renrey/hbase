@@ -966,7 +966,7 @@ public class HStore
     List<KeyValueScanner> memStoreScanners;
     this.storeEngine.readLock();
     try {
-      // 需要scan的HFile（就当前所有hfile）
+      // 需要scan的HFile（就当前store所有hfile）
       storeFilesToScan = this.storeEngine.getStoreFileManager().getFilesForScan(startRow,
         includeStartRow, stopRow, includeStopRow);
       /**

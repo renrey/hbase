@@ -128,27 +128,40 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
 
     // synchronize on scannerReadPoints so that nobody calculates
     // getSmallestReadPoint, before scannerReadPoints is updated.
+    /**
+     * mvcc 相关
+     */
     IsolationLevel isolationLevel = scan.getIsolationLevel();
     long mvccReadPoint = PackagePrivateFieldAccessor.getMvccReadPoint(scan);
     this.scannerReadPoints = region.scannerReadPoints;
     this.rsServices = region.getRegionServerServices();
+    // 上锁，证明基于同一个region 生成scanner的时候，是串行的
     synchronized (scannerReadPoints) {
+      // scan已经有point了
       if (mvccReadPoint > 0) {
         this.readPt = mvccReadPoint;
       } else if (hasNonce(region, nonce)) {
         this.readPt = rsServices.getNonceManager().getMvccFromOperationContext(nonceGroup, nonce);
       } else {
+        // get 的时候，没有nonce
+        // 如果读提交，使用mvcc当前的readPoint
+        // 读未提交, MAX等于不使用
         this.readPt = region.getReadPoint(isolationLevel);
       }
+      // 保存当前scanner 与readPoint到 当前Region的map中
       scannerReadPoints.put(this, this.readPt);
     }
-    // 初始化下级scanner
+    /**
+     * 初始化下级scanner(StoreScanner), 每个family1个scanner
+     */
     initializeScanners(scan, additionalScanners);
   }
 
   private void initializeScanners(Scan scan, List<KeyValueScanner> additionalScanners)
     throws IOException {
-    // 数量都是family数量
+    /**
+     * 这里的scanner数 就是 条件需要获取的family数量--- 每个目标family1个scanner
+     */
     // Here we separate all scanners into two lists - scanner that provide data required
     // by the filter to operate (scanners list) and all others (joinedScanners list).
     List<KeyValueScanner> scanners = new ArrayList<>(scan.getFamilyMap().size());
@@ -166,7 +179,7 @@ class RegionScannerImpl implements RegionScanner, Shipper, RpcCallback {
       for (Map.Entry<byte[], NavigableSet<byte[]>> entry : scan.getFamilyMap().entrySet()) {
         // 1。 get当前family的store
         HStore store = region.getStore(entry.getKey());
-        // 返回StoreScanner（第2级），StoreScanner
+        // 创建StoreScanner（第2级，new），StoreScanner
         KeyValueScanner scanner = store.getScanner(scan, entry.getValue(), this.readPt);
         instantiatedScanners.add(scanner);
         if (

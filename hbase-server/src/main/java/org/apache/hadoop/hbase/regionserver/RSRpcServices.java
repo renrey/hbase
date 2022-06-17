@@ -1158,12 +1158,9 @@ public class RSRpcServices extends HBaseRpcServicesBase<HRegionServer>
 
   // Directly invoked only for testing
   public RSRpcServices(final HRegionServer rs) throws IOException {
-<<<<<<< Updated upstream
     // 主要绑定监听地址、地址，创建rpc服务器
     // 看getServices()：本服务提供的接口
-=======
     // 创建rpcServer对象
->>>>>>> Stashed changes
     super(rs, rs.getProcessName());
     final Configuration conf = rs.getConfiguration();
     // 一堆rpc请求处理限制的配置项
@@ -2506,13 +2503,7 @@ public class RSRpcServices extends HBaseRpcServicesBase<HRegionServer>
       }
       if (existence == null) {
         if (context != null) {
-<<<<<<< Updated upstream
           // 2。 执行get处理
-=======
-          /**
-           * 执行
-           */
->>>>>>> Stashed changes
           r = get(clientGet, (region), null, context);
         } else {
           // for test purpose

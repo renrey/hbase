@@ -242,6 +242,11 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
     List<KeyValueScanner> scanners = null;
     try {
       // Pass columns to try to filter out unnecessary StoreFiles.
+      /**
+       * 获取下级scanner（storeFile、Segment）
+       * --- 默认的是返回全部Hfile的，只有使用Strip的才会进行过滤
+       * --- selectScannersFrom会过滤过期的
+       */
       scanners = selectScannersFrom(store,
         store.getScanners(cacheBlocks, scanUsePread, false, matcher, scan.getStartRow(),
           scan.includeStartRow(), scan.getStopRow(), scan.includeStopRow(), this.readPt));
@@ -250,6 +255,10 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
       // key does not exist, then to the start of the next matching Row).
       // Always check bloom filter to optimize the top row seek for delete
       // family marker.
+      /**
+       * 过滤掉不包含对应的rowkey的scanner
+       * ---- 通过每个scanner的seek方法遍历看是否存在rowkey数据
+       */
       seekScanners(scanners, matcher.getStartKey(), explicitColumnQuery && lazySeekEnabledGlobally,
         parallelSeekEnabled);
 
@@ -260,6 +269,9 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
       this.storeOffset = scan.getRowOffsetPerColumnFamily();
       addCurrentScanners(scanners);
       // Combine all seeked scanners with a heap
+      /**
+       * 生成新的KVHeap
+       */
       resetKVHeap(scanners, comparator);
     } catch (IOException e) {
       clearAndClose(scanners);
@@ -450,6 +462,7 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
 
     // We can only exclude store files based on TTL if minVersions is set to 0.
     // Otherwise, we might have to return KVs that have technically expired.
+    // 判断是否需要过期ttl
     long expiredTimestampCutoff = minVersions == 0 ? oldestUnexpiredTS : Long.MIN_VALUE;
 
     // include only those scan files which pass all filters
@@ -460,6 +473,7 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
         continue;
       }
 
+      // 过滤掉过期的
       if (kvs.shouldUseScanner(scan, store, expiredTimestampCutoff)) {
         scanners.add(kvs);
       } else {

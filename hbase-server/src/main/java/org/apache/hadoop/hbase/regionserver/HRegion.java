@@ -822,6 +822,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
     this.regionServicesForStores = new RegionServicesForStores(this, rsServices);
 
     setHTableSpecificConf();
+    // mvcc 记录当前使用scanner 的 开始point
     this.scannerReadPoints = new ConcurrentHashMap<>();
 
     this.busyWaitDuration = conf.getLong("hbase.busy.wait.duration", DEFAULT_BUSY_WAIT_DURATION);
