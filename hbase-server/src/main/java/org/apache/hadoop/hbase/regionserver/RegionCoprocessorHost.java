@@ -893,6 +893,7 @@ public class RegionCoprocessorHost
       return false;
     }
     boolean bypassable = true;
+    // RegionCoprocessorHost 中observer无，不会执行
     return execOperation(new RegionObserverOperationWithoutResult(bypassable) {
       @Override
       public void call(RegionObserver observer) throws IOException {

@@ -164,6 +164,7 @@ public class ChoreService {
             chore.getChoreService().cancelChore(chore);
           }
           chore.setChoreService(this);
+          // 提交定时执行
           ScheduledFuture<?> future =
             scheduler.scheduleAtFixedRate(TraceUtil.tracedRunnable(chore, chore.getName()),
               chore.getInitialDelay(), chore.getPeriod(), chore.getTimeUnit());

@@ -76,6 +76,7 @@ public final class ClusterConnectionFactory {
     ConnectionRegistryEndpoint endpoint, Configuration conf, SocketAddress localAddress, User user)
     throws IOException {
     ShortCircuitConnectionRegistry registry = new ShortCircuitConnectionRegistry(endpoint);
+    // 创建连接类：AsyncClusterConnectionImpl
     return createAsyncClusterConnection(conf, registry, localAddress, user);
   }
 }

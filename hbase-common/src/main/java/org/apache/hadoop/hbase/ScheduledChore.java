@@ -156,6 +156,9 @@ public abstract class ScheduledChore implements Runnable {
         if (!initialChoreComplete) {
           initialChoreComplete = initialChore();
         } else {
+          /**
+           * 执行chore：实现逻辑
+           */
           chore();
         }
         if (LOG.isDebugEnabled() && start > 0) {

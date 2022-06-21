@@ -84,6 +84,7 @@ public class ExecutorService {
    */
   public void startExecutorService(final ExecutorConfig config) {
     final String name = config.getName();
+    // 创建放到map里
     Executor hbes = this.executorMap.compute(name, (key, value) -> {
       if (value != null) {
         throw new RuntimeException(

@@ -198,6 +198,7 @@ public abstract class HBaseServerBase<R extends HBaseRpcServicesBase<?>> extends
       InetSocketAddress localAddress =
         new InetSocketAddress(rpcServices.getSocketAddress().getAddress(), 0);
       User user = userProvider.getCurrent();
+      // AsyncClusterConnectionImpl
       asyncClusterConnection =
         ClusterConnectionFactory.createAsyncClusterConnection(this, conf, localAddress, user);
     }
@@ -214,6 +215,7 @@ public abstract class HBaseServerBase<R extends HBaseRpcServicesBase<?>> extends
       CommonFSUtils.setFsDefault(this.conf, walDirUri);
     }
     // init the WALFs
+    // wal 文件客户端
     this.walFs = new HFileSystem(this.conf, useHBaseChecksum);
     this.walRootDir = CommonFSUtils.getWALRootDir(this.conf);
     // Set 'fs.defaultFS' to match the filesystem on hbase.rootdir else
@@ -225,12 +227,16 @@ public abstract class HBaseServerBase<R extends HBaseRpcServicesBase<?>> extends
       CommonFSUtils.setFsDefault(this.conf, rootDirUri);
     }
     // init the filesystem
+    // 存放数据的客户端
     this.dataFs = new HFileSystem(this.conf, useHBaseChecksum);
     this.dataRootDir = CommonFSUtils.getRootDir(this.conf);
     this.tableDescriptors = new FSTableDescriptors(this.dataFs, this.dataRootDir,
       !canUpdateTableDescriptor(), cacheTableDescriptor());
   }
 
+  /**
+   * 每种Hbase服务器都需要的
+   */
   public HBaseServerBase(Configuration conf, String name)
     throws ZooKeeperConnectionException, IOException {
     super(name); // thread name
@@ -264,7 +270,11 @@ public abstract class HBaseServerBase<R extends HBaseRpcServicesBase<?>> extends
     // or process owner as default super user.
     Superusers.initialize(conf);
     /**
-     * zk watcher
+     * 封装后的zk watcher，用来监听、处理zk事件（使用已注册的listenr）
+     *
+     * canCreateBaseZNode: 是否能创建集群基础znode，也就是是否master
+     * 1. 如果master，创建集群基础znode
+     * 2. 建立zk连接，通过原生watcher转发这里的封装ZKWatcher，并以事件驱动的方式调用已注册的listener进行处理
      */
     zooKeeper =
       new ZKWatcher(conf, getProcessName() + ":" + addr.getPort(), this, canCreateBaseZNode());
@@ -273,16 +283,18 @@ public abstract class HBaseServerBase<R extends HBaseRpcServicesBase<?>> extends
     setupWindows(conf, configurationManager);
 
     /**
-     * 文件配置初始化！！！
+     * 文件客户端初始化！！！
+     * wal、数据的
      */
     initializeFileSystem();
 
     // 所有定时执行线程池
     this.choreService = new ChoreService(getName(), true);
-    // 执行线程池
+    // 执行线程池，核心功能的转发执行都在这里
     this.executorService = new ExecutorService(getName());
 
     // 元数据缓存
+    // 注册zklistener、从zk获取/hbase/meta-region-server
     this.metaRegionLocationCache = new MetaRegionLocationCache(zooKeeper);
 
     // 集群协调
@@ -294,13 +306,18 @@ public abstract class HBaseServerBase<R extends HBaseRpcServicesBase<?>> extends
       } else {
         csm = null;
       }
+      /**
+       * 监听集群状态（只是集群的状态信息）
+       * （Hmaster会用来对集群znode操作）
+       * /hbase/running节点监听，注册
+       */
       clusterStatusTracker = new ClusterStatusTracker(zooKeeper, this);
       clusterStatusTracker.start();
     } else {
       csm = null;
       clusterStatusTracker = null;
     }
-    putUpWebUI();
+    putUpWebUI();// 界面
   }
 
   /**
@@ -405,15 +422,23 @@ public abstract class HBaseServerBase<R extends HBaseRpcServicesBase<?>> extends
       long globalMemStoreSize = pair.getFirst();
       boolean offheap = pair.getSecond() == MemoryType.NON_HEAP;
       // When off heap memstore in use, take full area for chunk pool.
+      // 池的最大比例
+      // 使用堆外offheap，百分比为100%
       float poolSizePercentage = offheap
         ? 1.0F
         : conf.getFloat(MemStoreLAB.CHUNK_POOL_MAXSIZE_KEY, MemStoreLAB.POOL_MAX_SIZE_DEFAULT);
+      // 初始比例
       float initialCountPercentage = conf.getFloat(MemStoreLAB.CHUNK_POOL_INITIALSIZE_KEY,
         MemStoreLAB.POOL_INITIAL_SIZE_DEFAULT);
+      // 默认chunk块大小=2M
       int chunkSize = conf.getInt(MemStoreLAB.CHUNK_SIZE_KEY, MemStoreLAB.CHUNK_SIZE_DEFAULT);
+      // indexchunksize 比例？
       float indexChunkSizePercent = conf.getFloat(MemStoreLAB.INDEX_CHUNK_SIZE_PERCENTAGE_KEY,
         MemStoreLAB.INDEX_CHUNK_SIZE_PERCENTAGE_DEFAULT);
       // init the chunkCreator
+      /**
+       * 初始化ChunkCreator：里面包含2个池：data、index
+       */
       ChunkCreator.initialize(chunkSize, offheap, globalMemStoreSize, poolSizePercentage,
         initialCountPercentage, hMemManager, indexChunkSizePercent);
     }

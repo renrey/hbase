@@ -1168,6 +1168,9 @@ public class Bytes implements Comparable<Bytes> {
    * @return 0 if equal, &lt; 0 if left is less than right, etc.
    */
   public static int compareTo(final byte[] left, final byte[] right) {
+    /**
+     * @see LexicographicalComparerHolder.UnsafeComparer#compareTo(byte[], int, int, byte[], int, int)
+     */
     return LexicographicalComparerHolder.BEST_COMPARER.compareTo(left, 0,
       left == null ? 0 : left.length, right, 0, right == null ? 0 : right.length);
   }
@@ -1369,6 +1372,7 @@ public class Bytes implements Comparable<Bytes> {
       try {
         Class<?> theClass = Class.forName(UNSAFE_COMPARER_NAME);
 
+        // 默认使用UnsafeComparer
         // yes, UnsafeComparer does implement Comparer<byte[]>
         @SuppressWarnings("unchecked")
         Comparer<byte[]> comparer = (Comparer<byte[]>) theClass.getEnumConstants()[0];
@@ -1439,6 +1443,7 @@ public class Bytes implements Comparable<Bytes> {
         final int stride = 8;
         final int minLength = Math.min(length1, length2);
         int strideLimit = minLength & ~(stride - 1);
+        // 从数组第一个开始
         final long offset1Adj = offset1 + UnsafeAccess.BYTE_ARRAY_BASE_OFFSET;
         final long offset2Adj = offset2 + UnsafeAccess.BYTE_ARRAY_BASE_OFFSET;
         int i;

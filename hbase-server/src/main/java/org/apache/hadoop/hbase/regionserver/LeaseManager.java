@@ -34,9 +34,11 @@ import org.slf4j.LoggerFactory;
  * Leases There are several server classes in HBase that need to track external clients that
  * occasionally send heartbeats.
  * <p>
+ *   这里的租约是那些需要追踪那些发送心跳的外部client的class
  * These external clients hold resources in the server class. Those resources need to be released if
  * the external client fails to send a heartbeat after some interval of time passes.
  * <p>
+ *   这些外部client占用了服务端的资源，如果客户端没有发送心跳，在一段时间后，这些资源会被释放
  * The Leases class is a general reusable class for this kind of pattern. An instance of the Leases
  * class will create a thread to do its dirty work. You should close() the instance if you want to
  * clean up the thread properly.

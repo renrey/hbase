@@ -70,6 +70,7 @@ public abstract class ZKNodeTracker extends ZKListener {
    * {@link #getData(boolean)} to get the data of the node if it is available.
    */
   public synchronized void start() {
+    // 注册listener
     this.watcher.registerListener(this);
     try {
       if (ZKUtil.watchAndCheckExists(watcher, node)) {
@@ -79,6 +80,7 @@ public abstract class ZKNodeTracker extends ZKListener {
         } else {
           // It existed but now does not, try again to ensure a watch is set
           LOG.debug("Try starting again because there is no data from {}", node);
+          // 没有数据(被删掉)，再尝试一次
           start();
         }
       }

@@ -68,12 +68,14 @@ public class MasterAddressTracker extends ZKNodeTracker {
    * @param abortable abortable in case of fatal error
    */
   public MasterAddressTracker(ZKWatcher watcher, Abortable abortable) {
+    // 当前的master：/hbase/master
     super(watcher, watcher.getZNodePaths().masterAddressZNode, abortable);
   }
 
   private void loadBackupMasters() {
     TraceUtil.trace(() -> {
       try {
+        // 从zk获取备用master信息
         backupMasters = Collections.unmodifiableList(getBackupMastersAndRenewWatch(watcher));
       } catch (InterruptedIOException e) {
         abortable.abort("Unexpected exception handling nodeChildrenChanged event", e);
@@ -346,6 +348,7 @@ public class MasterAddressTracker extends ZKNodeTracker {
     // Build Set of backup masters from ZK nodes
     List<String> backupMasterStrings = null;
     try {
+      //  从zk获取作备用的master节点:/hbase/backup-master
       backupMasterStrings = ZKUtil.listChildrenAndWatchForNewChildren(zkw,
         zkw.getZNodePaths().backupMasterAddressesZNode);
     } catch (KeeperException e) {
@@ -355,6 +358,7 @@ public class MasterAddressTracker extends ZKNodeTracker {
     List<ServerName> backupMasters = Collections.emptyList();
     if (backupMasterStrings != null && !backupMasterStrings.isEmpty()) {
       backupMasters = new ArrayList<>(backupMasterStrings.size());
+      // 获取这些备用master的详细信息
       for (String s : backupMasterStrings) {
         try {
           byte[] bytes;

@@ -82,7 +82,7 @@ public class HFileSystem extends FilterFileSystem {
     // We take pains to funnel all of our FileSystem instantiation through this call to ensure
     // we never need to call FS.initialize ourself so that we do not have to track any state to
     // avoid calling initialize more than once.
-    this.fs = FileSystem.get(getDefaultUri(conf), conf);
+    this.fs = FileSystem.get(getDefaultUri(conf), conf);// 文件系统客户端
     this.useHBaseChecksum = useHBaseChecksum;
 
     // disable checksum verification for local fileSystem, see HBASE-11218

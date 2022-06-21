@@ -77,6 +77,7 @@ public class RegionReplicationBufferManager {
     this.maxPendingSize = conf.getLong(MAX_PENDING_SIZE, MAX_PENDING_SIZE_DEFAULT);
     this.softMaxPendingSize =
       (long) (conf.getFloat(SOFT_LIMIT_PERCENTAGE, SOFT_LIMIT_PERCENTAGE_DEFAULT) * maxPendingSize);
+    // 线程池
     this.executor = new ThreadPoolExecutor(
       1, 1, 1, TimeUnit.SECONDS, new SynchronousQueue<>(), new ThreadFactoryBuilder()
         .setDaemon(true).setNameFormat("Region-Replication-Flusher-%d").build(),

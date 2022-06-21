@@ -85,6 +85,7 @@ public class ChunkCreator {
     float indexChunkSizePercentage) {
     this.offheap = offheap;
     this.chunkSize = chunkSize; // in case pools are not allocated
+    // 初始化pool
     initializePools(chunkSize, globalMemStoreSize, poolSizePercentage, indexChunkSizePercentage,
       initialCountPercentage, heapMemoryManager);
   }
@@ -92,6 +93,10 @@ public class ChunkCreator {
   private void initializePools(int chunkSize, long globalMemStoreSize, float poolSizePercentage,
     float indexChunkSizePercentage, float initialCountPercentage,
     HeapMemoryManager heapMemoryManager) {
+    /**
+     * 分了2个池：data、index
+     */
+    // data数据的池
     this.dataChunksPool = initializePool("data", globalMemStoreSize,
       (1 - indexChunkSizePercentage) * poolSizePercentage, initialCountPercentage, chunkSize,
       ChunkType.DATA_CHUNK, heapMemoryManager);
@@ -99,6 +104,7 @@ public class ChunkCreator {
     // Since the pools are not created at all when the index type isn't CCM,
     // we don't need to check it here.
     this.indexChunkSize = (int) (indexChunkSizePercentage * chunkSize);
+    // index 索引的池
     this.indexChunksPool =
       initializePool("index", globalMemStoreSize, indexChunkSizePercentage * poolSizePercentage,
         initialCountPercentage, this.indexChunkSize, ChunkType.INDEX_CHUNK, heapMemoryManager);
@@ -332,6 +338,7 @@ public class ChunkCreator {
       this.maxCount = maxCount;
       this.poolSizePercentage = poolSizePercentage;
       this.reclaimedChunks = new LinkedBlockingQueue<>();
+      // 初始化创建指定数量chunk
       for (int i = 0; i < initialCount; i++) {
         Chunk chunk = createChunk(true, chunkType, chunkSize);
         chunk.init();
@@ -339,6 +346,9 @@ public class ChunkCreator {
       }
       chunkCount.set(initialCount);
       final String n = Thread.currentThread().getName();
+      /**
+       * 定时任务5min1次
+       */
       scheduleThreadPool = Executors.newScheduledThreadPool(1, new ThreadFactoryBuilder()
         .setNameFormat(n + "-MemStoreChunkPool Statistics").setDaemon(true).build());
       this.scheduleThreadPool.scheduleAtFixedRate(new StatisticsThread(), statThreadPeriod,
@@ -484,8 +494,12 @@ public class ChunkCreator {
     int initialCount = (int) (initialCountPercentage * maxCount);
     LOG.info("Allocating {} MemStoreChunkPool with chunk size {}, max count {}, initial count {}",
       label, StringUtils.byteDesc(chunkSize), maxCount, initialCount);
+    /**
+     * pool对象创建
+     */
     MemStoreChunkPool memStoreChunkPool = new MemStoreChunkPool(label, chunkSize, chunkType,
       maxCount, initialCount, poolSizePercentage);
+    // 注册
     if (heapMemoryManager != null && memStoreChunkPool != null) {
       // Register with Heap Memory manager
       heapMemoryManager.registerTuneObserver(memStoreChunkPool);

@@ -124,7 +124,7 @@ public class BootstrapNodeManager {
         .setSleepInterval(requestMasterMinIntervalSecs).setMaxSleepTime(requestMasterIntervalSecs)
         .setTimeUnit(TimeUnit.SECONDS));
     /**
-     * 定时跟master通信
+     * 定时跟master通信，获取其他存活HRS列表
      */
     executor.schedule(this::getFromMaster, getDelay(requestMasterMinIntervalSecs),
       TimeUnit.SECONDS);
@@ -139,6 +139,7 @@ public class BootstrapNodeManager {
     List<ServerName> liveRegionServers;
     try {
       // get 2 times number of node
+      // 请求master获取HRS节点列表
       liveRegionServers =
         FutureUtils.get(conn.getLiveRegionServers(masterAddrTracker, maxNodeCount * 2));
     } catch (IOException e) {
@@ -152,7 +153,11 @@ public class BootstrapNodeManager {
     }
     retryCounter = null;
     lastRequestMasterTime = EnvironmentEdgeManager.currentTime();
+    // 这些HRS放到nodes
     this.nodes = Collections.unmodifiableList(liveRegionServers);
+    /**
+     * 当前集群的HRS < limit的，再尝试获取
+     */
     if (liveRegionServers.size() < maxNodeCount) {
       // If the number of live region servers is small, it means the cluster is small, so requesting
       // master with a higher frequency will not be a big problem, so here we will always request
@@ -161,6 +166,9 @@ public class BootstrapNodeManager {
         TimeUnit.SECONDS);
       return;
     }
+    /**
+     * HRS超过limit现在限制，
+     */
     // schedule tasks to exchange the bootstrap nodes with other region servers.
     executor.schedule(this::getFromRegionServer, getDelay(requestRegionServerIntervalSecs),
       TimeUnit.SECONDS);
@@ -178,9 +186,13 @@ public class BootstrapNodeManager {
       return;
     }
     List<ServerName> currentList = this.nodes;
+    // 随机一个HRS
     ServerName peer = currentList.get(ThreadLocalRandom.current().nextInt(currentList.size()));
     List<ServerName> otherList;
     try {
+      /**
+       * 获取其他HRS的bootstrapNodeManager的nodes
+       */
       otherList = FutureUtils.get(conn.getAllBootstrapNodes(peer));
     } catch (IOException e) {
       LOG.warn("failed to request region server {}", peer, e);

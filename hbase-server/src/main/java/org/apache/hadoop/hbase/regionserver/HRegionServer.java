@@ -256,7 +256,13 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
   private HeapMemoryManager hMemManager;
 
   // Replication services. If no replication, this handler will be null.
+  /**
+   * @see org.apache.hadoop.hbase.replication.regionserver.Replication
+   */
   private ReplicationSourceService replicationSourceHandler;
+  /**
+   * @see org.apache.hadoop.hbase.replication.ReplicationSinkServiceImpl
+   */
   private ReplicationSinkService replicationSinkHandler;
   private boolean sameReplicationSourceAndSink;
 
@@ -471,7 +477,8 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
      * 通用创建
      * netty group
      * rpc服务器创建
-     * zk
+     * zk ：基础znode创建、 通用watcher、建立zk连接、本地listener注册
+     * meta-region信息缓存
      */
     super(conf, "RegionServer"); // thread name
     try {
@@ -514,7 +521,11 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
       // If no master in cluster, skip trying to track one or look for a cluster status.
       if (!this.masterless) {
         /**
-         * 集群master 相关
+         * 监听集群master
+         * start()启动，获取zk有个master的节点后，会调用：
+         * @see MasterAddressTracker#loadBackupMasters() 加载备用master信息
+         *
+         * 启动实际做的是：从zk获取当前master，然后尝试从zk获取备用master
          */
         masterAddressTracker = new MasterAddressTracker(getZooKeeper(), this);
         masterAddressTracker.start();
@@ -660,9 +671,18 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
    */
   private void preRegistrationInitialization() {
     try {
+      /**
+       * 1. 初始化zk
+       * 2. 创建启动RegionServerProcedureManagerHost（管理Snapshot、FlushTable）
+       */
       initializeZooKeeper();
+      // 创建连接类：AsyncClusterConnectionImpl
       setupClusterConnection();
+      // bootsrap，主要是集群连接、存活HRS列表
       bootstrapNodeManager = new BootstrapNodeManager(asyncClusterConnection, masterAddressTracker);
+      /**
+       * region复制
+       */
       regionReplicationBufferManager = new RegionReplicationBufferManager(this);
       // Setup RPC client for master communication
       /**
@@ -706,7 +726,9 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
       // Since cluster status is now up
       // ID should have already been set by HMaster
       try {
+        // 从zk获取clusterId
         clusterId = ZKClusterId.readClusterIdZNode(this.zooKeeper);
+        // 必须有clusterId
         if (clusterId == null) {
           this.abort("Cluster ID has not been set");
         }
@@ -721,6 +743,11 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     }
 
     // watch for snapshots and other procedures
+    /**
+     * 加载初始话HRS 需要的Procedure
+     * 1。 snapshot
+     * 2。FlushTable
+     */
     try {
       rspmHost = new RegionServerProcedureManagerHost();
       rspmHost.loadProcedures(conf);
@@ -786,19 +813,26 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
         // the clusterup flag is down or hdfs went wacky. Once registered successfully, go ahead and
         // start up all Services. Use RetryCounter to get backoff in case Master is struggling to
         // come up.
+        /**
+         * 注册到master
+         */
         LOG.debug("About to register with Master.");
         RetryCounterFactory rcf =
           new RetryCounterFactory(Integer.MAX_VALUE, this.sleeper.getPeriod(), 1000 * 60 * 5);
         RetryCounter rc = rcf.create();
+        // 有集群正在使用（zk上）
         while (keepLooping()) {
+          // 发送RegionServerStartupRequest给master上报节点信息
           RegionServerStartupResponse w = reportForDuty();
+          // 无结果，sleep后继续
           if (w == null) {
             long sleepTime = rc.getBackoffTimeAndIncrementAttempts();
             LOG.warn("reportForDuty failed; sleeping {} ms and then retrying.", sleepTime);
             this.sleeper.sleep(sleepTime);
           } else {
             /**
-             * 核心功能启动：！！！！！
+             * 注册成功后：
+             * 核心功能启动！！！！！
              * wal等
              */
             handleReportForDutyResponse(w);
@@ -1381,9 +1415,12 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
         this.conf.set(key, value);
       }
       // Set our ephemeral znode up in zookeeper now we have a name.
+      /**
+       * 在zk创建自己的临时节点
+       */
       createMyEphemeralNode();
 
-      // hdfs 相关
+      // hdfs 相关, 如果配置有变化，再初始化一遍
       if (updateRootDir) {
         // initialize file system by the config fs.defaultFS and hbase.rootdir from master
         initializeFileSystem();
@@ -1396,10 +1433,13 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
       }
 
       // Save it in a file, this will allow to see if we crash
+      // 记录下本次的znode路径在本地，方便crash后查看
       ZNodeClearer.writeMyEphemeralNodeOnDisk(getMyEphemeralNodePath());
 
       /**
-       * 设置WAL、复制（未启动）
+       * 1。 WAL工厂
+       * 2。创建新的log文件
+       * 3。 创建复制Replication请求的响应handler （source、sink2种服务）
        */
       // This call sets up an initialized replication and WAL. Later we start it up.
       setupWALAndReplication();
@@ -1414,6 +1454,9 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
       pauseMonitor.start();
 
       // There is a rare case where we do NOT want services to start. Check config.
+      /**
+       * 启动核心服务线程！！！
+       */
       if (getConfiguration().getBoolean("hbase.regionserver.workers", true)) {
         startServices();
       }
@@ -1455,6 +1498,7 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     rsInfo.setInfoPort(infoServer != null ? infoServer.getPort() : -1);
     rsInfo.setVersionInfo(ProtobufUtil.getVersionInfo());
     byte[] data = ProtobufUtil.prependPBMagic(rsInfo.build().toByteArray());
+    // 创建自己的临时znode
     ZKUtil.createEphemeralNodeAndWatch(this.zooKeeper, getMyEphemeralNodePath(), data);
   }
 
@@ -1709,23 +1753,34 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
    * be hooked up to WAL.
    */
   private void setupWALAndReplication() throws IOException {
+    /**
+     * 1。 WAL的工厂！！！
+     * provider=SyncReplicationWALProvider
+     */
     WALFactory factory = new WALFactory(conf, serverName.toString(), this, true);
     // TODO Replication make assumptions here based on the default filesystem impl
     Path oldLogDir = new Path(walRootDir, HConstants.HREGION_OLDLOGDIR_NAME);
+    // 当前节点的WAL文件名
     String logName = AbstractFSWALProvider.getWALDirectoryName(this.serverName.toString());
 
+    // 文件路径
     Path logDir = new Path(walRootDir, logName);
     LOG.debug("logDir={}", logDir);
+    // 已存在就返回错误，因为serverName是带着当前启动的时间
     if (this.walFs.exists(logDir)) {
       throw new RegionServerRunningException(
         "Region server has already created directory at " + this.serverName.toString());
     }
     // Always create wal directory as now we need this when master restarts to find out the live
     // region servers.
+    // 2。 创建WAL的文件
     if (!this.walFs.mkdirs(logDir)) {
       throw new IOException("Can not create wal directory " + logDir);
     }
     // Instantiate replication if replication enabled. Pass it the log directories.
+    /**
+     * 3。 创建Replication相关source、sink 2种服务请求处理handler
+     */
     createNewReplicationInstance(conf, this, this.walFs, logDir, oldLogDir, factory);
     this.walFactory = factory;
   }
@@ -1766,6 +1821,10 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
    */
   private void startServices() throws IOException {
     // 初始化基础线程
+    /**
+     * 执行线程：Compaction、memStoreFlush
+     * 定时检查：Compaction检查、memStoreFlush检查、客户端占用的资源心跳管理
+     */
     if (!isStopped() && !isAborted()) {
       initializeThreads();
     }
@@ -1789,8 +1848,14 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
         this.metricsRegionServer.getMetricsSource());
     }
 
+    /**
+     * WAL 回滚定时检查
+     */
     this.walRoller = new LogRoller(this);
     this.flushThroughputController = FlushThroughputControllerFactory.create(this, conf);
+    /**
+     * procedure结果上报
+     */
     this.procedureResultReporter = new RemoteProcedureResultReporter(this);
 
     // Create the CompactedFileDischarger chore executorService. This chore helps to
@@ -1801,10 +1866,17 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     this.compactedFileDischarger = new CompactedHFilesDischarger(cleanerInterval, this, this);
     choreService.scheduleChore(compactedFileDischarger);
 
+    // 其实是设置指定操作的线程数量，不是真的会执行
     // Start executor services
+    /**
+     * 打开region线程：3个
+     */
     final int openRegionThreads = conf.getInt("hbase.regionserver.executor.openregion.threads", 3);
     executorService.startExecutorService(executorService.new ExecutorConfig()
       .setExecutorType(ExecutorType.RS_OPEN_REGION).setCorePoolSize(openRegionThreads));
+    /**
+     * 打开MetaRegion
+     */
     final int openMetaThreads = conf.getInt("hbase.regionserver.executor.openmeta.threads", 1);
     executorService.startExecutorService(executorService.new ExecutorConfig()
       .setExecutorType(ExecutorType.RS_OPEN_META).setCorePoolSize(openMetaThreads));
@@ -1813,13 +1885,16 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     executorService.startExecutorService(
       executorService.new ExecutorConfig().setExecutorType(ExecutorType.RS_OPEN_PRIORITY_REGION)
         .setCorePoolSize(openPriorityRegionThreads));
+    // 关闭Region：3个
     final int closeRegionThreads =
       conf.getInt("hbase.regionserver.executor.closeregion.threads", 3);
     executorService.startExecutorService(executorService.new ExecutorConfig()
       .setExecutorType(ExecutorType.RS_CLOSE_REGION).setCorePoolSize(closeRegionThreads));
+    // 关闭Meta
     final int closeMetaThreads = conf.getInt("hbase.regionserver.executor.closemeta.threads", 1);
     executorService.startExecutorService(executorService.new ExecutorConfig()
       .setExecutorType(ExecutorType.RS_CLOSE_META).setCorePoolSize(closeMetaThreads));
+    // store清理并行检查，默认关闭
     if (conf.getBoolean(StoreScanner.STORESCANNER_PARALLEL_SEEK_ENABLE, false)) {
       final int storeScannerParallelSeekThreads =
         conf.getInt("hbase.storescanner.parallel.seek.threads", 10);
@@ -1827,6 +1902,9 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
         executorService.new ExecutorConfig().setExecutorType(ExecutorType.RS_PARALLEL_SEEK)
           .setCorePoolSize(storeScannerParallelSeekThreads).setAllowCoreThreadTimeout(true));
     }
+    /**
+     * WAL log回放线程（split）：2个
+     */
     final int logReplayOpsThreads =
       conf.getInt(HBASE_SPLIT_WAL_MAX_SPLITTER, DEFAULT_HBASE_SPLIT_WAL_MAX_SPLITTER);
     executorService.startExecutorService(
@@ -1846,10 +1924,14 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
         .setExecutorType(ExecutorType.RS_REGION_REPLICA_FLUSH_OPS)
         .setCorePoolSize(regionReplicaFlushThreads));
     }
+    // refresh peer
     final int refreshPeerThreads =
       conf.getInt("hbase.regionserver.executor.refresh.peer.threads", 2);
     executorService.startExecutorService(executorService.new ExecutorConfig()
       .setExecutorType(ExecutorType.RS_REFRESH_PEER).setCorePoolSize(refreshPeerThreads));
+    /**
+     * WAL 回放同步复制？
+     */
     final int replaySyncReplicationWALThreads =
       conf.getInt("hbase.regionserver.executor.replay.sync.replication.wal.threads", 1);
     executorService.startExecutorService(executorService.new ExecutorConfig()
@@ -1865,20 +1947,26 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     executorService.startExecutorService(
       executorService.new ExecutorConfig().setExecutorType(ExecutorType.RS_CLAIM_REPLICATION_QUEUE)
         .setCorePoolSize(claimReplicationQueueThreads));
+    /**
+     * snapshot：3个
+     */
     final int rsSnapshotOperationThreads =
       conf.getInt("hbase.regionserver.executor.snapshot.operations.threads", 3);
     executorService.startExecutorService(
       executorService.new ExecutorConfig().setExecutorType(ExecutorType.RS_SNAPSHOT_OPERATIONS)
         .setCorePoolSize(rsSnapshotOperationThreads));
 
+    // 启动walRoller
     Threads.setDaemonThreadRunning(this.walRoller, getName() + ".logRoller",
       uncaughtExceptionHandler);
+    // 启动cacheFlusher
     if (this.cacheFlusher != null) {
       this.cacheFlusher.start(uncaughtExceptionHandler);
     }
     Threads.setDaemonThreadRunning(this.procedureResultReporter,
       getName() + ".procedureResultReporter", uncaughtExceptionHandler);
 
+    // 把定时任务提交到线程池choreService
     if (this.compactionChecker != null) {
       choreService.scheduleChore(compactionChecker);
     }
@@ -1909,6 +1997,7 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
 
     // Leases is not a Thread. Internally it runs a daemon thread. If it gets
     // an unhandled exception, it will just exit.
+    // 后台运行
     Threads.setDaemonThreadRunning(this.leaseManager, getName() + ".leaseChecker",
       uncaughtExceptionHandler);
 
@@ -1934,10 +2023,14 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
 
     // Memstore services.
     /**
-     * 启动Memstore 管理器!!!!!!
+     * Memstore相关的
      */
+    // 启动定时调整 堆内存 分配器
     startHeapMemoryManager();
     // Call it after starting HeapMemoryManager.
+    /**
+     * MemStoreChunkCreator: MemStore的chunk池创建（2个池：index、data）
+     */
     initializeMemStoreChunkCreator(hMemManager);
   }
 
@@ -1947,18 +2040,19 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     this.cacheFlusher = new MemStoreFlusher(conf, this);
 
     // Compaction thread
-    // Compaction的执行线程？
+    // Compaction、split的执行线程？
     this.compactSplitThread = new CompactSplit(this);
 
     // Background thread to check for compactions; needed if region has not gotten updates
     // in a while. It will take care of not checking too frequently on store-by-store basis.
-    // 定期检查是否需要compaction
+    // 定期检查是否需要compaction，10s
     this.compactionChecker = new CompactionChecker(this, this.compactionCheckFrequency, this);
-    // memStore 定期flush
+    // memStore 定期flush，10s
     this.periodicFlusher = new PeriodicMemStoreFlusher(this.flushCheckFrequency, this);
-    // 心跳续约
+    // 客户端占用的资源心跳管理，10s
     this.leaseManager = new LeaseManager(this.threadWakeFrequency);
 
+    // 慢日志
     final boolean isSlowLogTableEnabled = conf.getBoolean(HConstants.SLOW_LOG_SYS_TABLE_ENABLED_KEY,
       HConstants.DEFAULT_SLOW_LOG_SYS_TABLE_ENABLED_KEY);
     if (isSlowLogTableEnabled) {
@@ -1973,7 +2067,9 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     }
 
     // Setup the Quota Manager
+    // rpc指标
     rsQuotaManager = new RegionServerRpcQuotaManager(this);
+    // 磁盘指标
     rsSpaceQuotaManager = new RegionServerSpaceQuotaManager(this);
 
     if (QuotaUtil.isQuotaEnabled(conf)) {
@@ -1990,6 +2086,7 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
           StorefileRefresherChore.DEFAULT_REGIONSERVER_STOREFILE_REFRESH_PERIOD);
       onlyMetaRefresh = true;
     }
+    // 定时refresh storefile 默认关闭
     if (storefileRefreshPeriod > 0) {
       this.storefileRefresher =
         new StorefileRefresherChore(storefileRefreshPeriod, onlyMetaRefresh, this, this);
@@ -2007,6 +2104,9 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     double jitterRate =
       (ThreadLocalRandom.current().nextDouble() - 0.5D) * brokenStoreFileCleanerDelayJitter;
     long jitterValue = Math.round(brokenStoreFileCleanerDelay * jitterRate);
+    /**
+     * 损坏的storefile清理，间隔6h
+     */
     this.brokenStoreFileCleaner =
       new BrokenStoreFileCleaner((int) (brokenStoreFileCleanerDelay + jitterValue),
         brokenStoreFileCleanerPeriod, this, conf, this);
@@ -2760,6 +2860,11 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
 
     // If both the sink and the source class names are the same, then instantiate
     // only one object.
+    /**
+     * 创建ReplicationSourceService、ReplicationSinkService 2个服务处理接口的实现类对象：
+     * @see org.apache.hadoop.hbase.replication.regionserver.Replication source
+     * @see org.apache.hadoop.hbase.replication.ReplicationSinkServiceImpl sink
+     */
     if (sourceClassname.equals(sinkClassname)) {
       server.replicationSourceHandler = newReplicationInstance(sourceClassname,
         ReplicationSourceService.class, conf, server, walFs, walDir, oldWALDir, walFactory);
@@ -2774,6 +2879,8 @@ public class HRegionServer extends HBaseServerBase<RSRpcServices>
     }
   }
 
+  // 接口类：xface
+  // 实现类：className
   private static <T extends ReplicationService> T newReplicationInstance(String classname,
     Class<T> xface, Configuration conf, HRegionServer server, FileSystem walFs, Path logDir,
     Path oldLogDir, WALFactory walFactory) throws IOException {

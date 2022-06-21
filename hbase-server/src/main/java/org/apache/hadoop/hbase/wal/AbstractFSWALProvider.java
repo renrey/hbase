@@ -120,8 +120,10 @@ public abstract class AbstractFSWALProvider<T extends AbstractFSWAL<?>> implemen
         sb.append(WAL_FILE_NAME_DELIMITER).append(providerId);
       }
     }
+    // log前缀：WALFactory的类名
     logPrefix = sb.toString();
     this.abortable = abortable;
+    // netty的group、channel属性设置
     doInit(conf);
   }
 

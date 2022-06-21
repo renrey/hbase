@@ -209,6 +209,7 @@ public class HeapMemoryManager {
     LOG.info("Starting, tuneOn={}", this.tunerOn);
     this.heapMemTunerChore = new HeapMemoryTunerChore();
     // 提交一个HeapMemoryTunerChore，调度执行
+    // 60s一次
     service.scheduleChore(heapMemTunerChore);
     if (tunerOn) {
       // Register HeapMemoryTuner as a memstore flush listener
@@ -258,6 +259,7 @@ public class HeapMemoryManager {
       tunerContext.setOffheapMemStore(regionServerAccounting.isOffheap());
     }
 
+    // 定时执行逻辑
     @Override
     protected void chore() {
       // Sample heap occupancy

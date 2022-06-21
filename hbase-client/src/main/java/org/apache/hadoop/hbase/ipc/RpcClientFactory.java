@@ -83,6 +83,9 @@ public final class RpcClientFactory {
   public static RpcClient createClient(Configuration conf, String clusterId,
     SocketAddress localAddr, MetricsConnection metrics) {
     String rpcClientClass = getRpcClientClass(conf);
+    /**
+     * @see NettyRpcClient
+     */
     return ReflectionUtils.instantiateWithCustomCtor(rpcClientClass, new Class[] {
       Configuration.class, String.class, SocketAddress.class, MetricsConnection.class },
       new Object[] { conf, clusterId, localAddr, metrics });

@@ -175,12 +175,19 @@ public class ZKWatcher implements Watcher, Abortable, Closeable {
     this.identifier = identifier + "0x0";
     this.abortable = abortable;
     this.znodePaths = new ZNodePaths(conf);
+    // 实现zk原生watcher
     PendingWatcher pendingWatcher = new PendingWatcher();
+    // 建立zk原生连接（使用pendingWatcher）
     this.recoverableZooKeeper =
       RecoverableZooKeeper.connect(conf, quorum, pendingWatcher, identifier);
+    // 把当前自定义的watcher 绑定到pendingWatcher上，
+    // 有监听event通知到pendingWatcher后，会转发到这里(process()方法)，实际根据event调用已经注册listener
     pendingWatcher.prepare(this);
     if (canCreateBaseZNode) {
       try {
+        /**
+         * 创建集群需要的基础ZNode
+         */
         createBaseZNodes();
       } catch (ZooKeeperConnectionException zce) {
         try {
@@ -248,11 +255,11 @@ public class ZKWatcher implements Watcher, Abortable, Closeable {
   private void createBaseZNodes() throws ZooKeeperConnectionException {
     try {
       // Create all the necessary "directories" of znodes
-      ZKUtil.createWithParents(this, znodePaths.baseZNode);
-      ZKUtil.createAndFailSilent(this, znodePaths.rsZNode);
+      ZKUtil.createWithParents(this, znodePaths.baseZNode); // /hbase
+      ZKUtil.createAndFailSilent(this, znodePaths.rsZNode); // /hbase/rs
       ZKUtil.createAndFailSilent(this, znodePaths.drainingZNode);
       ZKUtil.createAndFailSilent(this, znodePaths.tableZNode);
-      ZKUtil.createAndFailSilent(this, znodePaths.splitLogZNode);
+      ZKUtil.createAndFailSilent(this, znodePaths.splitLogZNode); // /hbase/splitWAL
       ZKUtil.createAndFailSilent(this, znodePaths.backupMasterAddressesZNode);
       ZKUtil.createAndFailSilent(this, znodePaths.masterMaintZNode);
     } catch (KeeperException e) {
@@ -458,8 +465,10 @@ public class ZKWatcher implements Watcher, Abortable, Closeable {
    * for subsequent CREATE/DELETE operations on child nodes.
    */
   public List<String> getMetaReplicaNodesAndWatchChildren() throws KeeperException {
+    // 1. 获取baseZnode的子节点，并注册watcher
     List<String> childrenOfBaseNode =
       ZKUtil.listChildrenAndWatchForNewChildren(this, znodePaths.baseZNode);
+    // 2. 过滤children，拿到/hbase/meta-region-server开头的节点，就是meta的节点
     return filterMetaReplicaNodes(childrenOfBaseNode);
   }
 
@@ -472,6 +481,7 @@ public class ZKWatcher implements Watcher, Abortable, Closeable {
       return new ArrayList<>();
     }
     List<String> metaReplicaNodes = new ArrayList<>(2);
+    // 节点：/hbase/meta-region-serverXXX
     String pattern = conf.get(ZNodePaths.META_ZNODE_PREFIX_CONF_KEY, ZNodePaths.META_ZNODE_PREFIX);
     for (String child : nodes) {
       if (child.startsWith(pattern)) {
@@ -606,6 +616,9 @@ public class ZKWatcher implements Watcher, Abortable, Closeable {
     LOG.debug(prefix("Received ZooKeeper Event, " + "type=" + event.getType() + ", " + "state="
       + event.getState() + ", " + "path=" + event.getPath()));
     final String spanName = ZKWatcher.class.getSimpleName() + "-" + identifier;
+    /**
+     * 提交事件执行
+     */
     zkEventProcessor.submit(TraceUtil.tracedRunnable(() -> processEvent(event), spanName));
   }
 

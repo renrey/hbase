@@ -3259,10 +3259,13 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
       // 'rough' in that between the resource check and the call to obtain a
       // read lock, resources may run out. For now, the thought is that this
       // will be extremely rare; we'll deal with it when it happens.
+      // 1。校验是否超过flush上限，超过先flush 这个region
       checkResources();
+      // 2。预执行操作
       startRegionOperation(Operation.PUT);
       try {
         // All edits for the given row (across all column families) must happen atomically.
+        // 3。执行
         return mutate(put);
       } finally {
         closeRegionOperation(Operation.PUT);
@@ -3322,7 +3325,9 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
     public void visitBatchOperations(boolean pendingOnly, int lastIndexExclusive, Visitor visitor)
       throws IOException {
       assert lastIndexExclusive <= this.size();
+      // 遍历判断
       for (int i = nextIndexToProcess; i < lastIndexExclusive; i++) {
+        // 未执行的操作，校验下
         if (!pendingOnly || isOperationPending(i)) {
           if (!visitor.visit(i)) {
             break;
@@ -3430,10 +3435,13 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
      */
     protected void checkAndPrepareMutation(Mutation mutation, final long timestamp)
       throws IOException {
+      // 校验row是否在范围内
       region.checkRow(mutation.getRow(), "batchMutate");
       if (mutation instanceof Put) {
         // Check the families in the put. If bad, skip this one.
+        // 校验列族，并prepare
         checkAndPreparePut((Put) mutation);
+        // 校验timestamp（cell的时间是否合法，不新过当前时间）
         region.checkTimestamps(mutation.getFamilyCellMap(), timestamp);
       } else if (mutation instanceof Delete) {
         region.prepareDelete((Delete) mutation);
@@ -3445,14 +3453,19 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
     protected void checkAndPrepareMutation(int index, long timestamp) throws IOException {
       Mutation mutation = getMutation(index);
       try {
+        /**
+         * 校验并做prepare处理
+         */
         this.checkAndPrepareMutation(mutation, timestamp);
 
         if (mutation instanceof Put || mutation instanceof Delete) {
           // store the family map reference to allow for mutations
+          // 请求需要用到的family
           familyCellMaps[index] = mutation.getFamilyCellMap();
         }
 
         // store durability for the batch (highest durability of all operations in the batch)
+        // 这批batch操作的WAL持久策略，使用等级最高那个请求等
         Durability tmpDur = region.getEffectiveDurability(mutation.getDurability());
         if (tmpDur.ordinal() > durability.ordinal()) {
           durability = tmpDur;
@@ -3796,6 +3809,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
 
     @Override
     public void checkAndPreparePut(Put p) throws IOException {
+      // 校验family
       region.checkFamilies(p.getFamilyCellMap().keySet(), p.getDurability());
     }
 
@@ -3804,14 +3818,17 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
       // index 0: puts, index 1: deletes, index 2: increments, index 3: append
       final int[] metrics = { 0, 0, 0, 0 };
 
+      // 校验未执行的操作是否能执行
       visitBatchOperations(true, this.size(), new Visitor() {
         private long now = EnvironmentEdgeManager.currentTime();
         private WALEdit walEdit;
 
+        // 校验逻辑
         @Override
         public boolean visit(int index) throws IOException {
           // Run coprocessor pre hook outside of locks to avoid deadlock
           if (region.coprocessorHost != null) {
+            // 初始化WALEdit
             if (walEdit == null) {
               walEdit = new WALEdit();
             }
@@ -3821,10 +3838,14 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
               walEdit = null;
             }
           }
+          // 未执行操作
           if (isOperationPending(index)) {
             // TODO: Currently validation is done with current time before acquiring locks and
             // updates are done with different timestamps after acquiring locks. This behavior is
             // inherited from the code prior to this change. Can this be changed?
+            /**
+             * 校验请求、并prepare请求需要的对象
+             */
             checkAndPrepareMutation(index, now);
           }
           return true;
@@ -4622,6 +4643,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
     // checkAndMutate.
     // * coprocessor calls (see ex. BulkDeleteEndpoint).
     // So nonces are not really ever used by HBase. They could be by coprocs, and checkAnd...
+    // 提交一次batch操作
     return batchMutate(new MutationBatchOperation(this, mutations, atomic, nonceGroup, nonce));
   }
 
@@ -4692,20 +4714,33 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
     boolean initialized = false;
     batchOp.startRegionOperation();
     try {
+      // 判断batch是否所有操作都完成
       while (!batchOp.isDone()) {
+        // 非replay操作，需要region非只读
         if (!batchOp.isInReplay()) {
           checkReadOnly();
         }
+        // 检查Region是否需要flush，需要先flush
         checkResources();
 
+        // 未初始化当前操作，当前batch第一次执行
         if (!initialized) {
+          // 先读取并保存batch的操作数量
           this.writeRequestsCount.add(batchOp.size());
           // validate and prepare batch for write, for MutationBatchOperation it also calls CP
           // prePut()/preDelete()/preIncrement()/preAppend() hooks
+          /**
+           * 1。 校验请求是可执行
+           * 2。prepare请求需要的对象
+           */
           batchOp.checkAndPrepare();
           initialized = true;
         }
+        /**
+         * 真正处理操作
+         */
         doMiniBatchMutate(batchOp);
+        // 处理完成，又判断一次是否需要flush
         requestFlushIfNeeded();
       }
     } finally {
@@ -5115,6 +5150,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
 
   private OperationStatus mutate(Mutation mutation, boolean atomic, long nonceGroup, long nonce)
     throws IOException {
+    // 提交批执行
     OperationStatus[] status =
       this.batchMutate(new Mutation[] { mutation }, atomic, nonceGroup, nonce);
     if (status[0].getOperationStatusCode().equals(OperationStatusCode.SANITY_CHECK_FAILURE)) {
@@ -5212,9 +5248,12 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
       return;
     }
 
+    // 当前已用大小
     MemStoreSize mss = this.memStoreSizing.getMemStoreSize();
+    // （heap+offheap）超过flush大小，执行flush
     if (mss.getHeapSize() + mss.getOffHeapSize() > this.blockingMemStoreSize) {
       blockedRequestsCount.increment();
+      // 执行flush
       requestFlush();
       // Don't print current limit because it will vary too much. The message is used as a key
       // over in RetriesExhaustedWithDetailsException processing.
@@ -5272,6 +5311,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
     }
   }
 
+  // durability：WAL写入策略
   private void checkFamilies(Collection<byte[]> families, Durability durability)
     throws NoSuchColumnFamilyException, InvalidMutationDurabilityException {
     for (byte[] family : families) {
@@ -5281,7 +5321,9 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
 
   private void checkFamily(final byte[] family, Durability durability)
     throws NoSuchColumnFamilyException, InvalidMutationDurabilityException {
+    // 校验列族
     checkFamily(family);
+    // SKIP_WAL 时，列族的作用域必须是REPLICATION_SCOPE_LOCAL（需要复制，不能不写WAL）
     if (
       durability.equals(Durability.SKIP_WAL)
         && htableDescriptor.getColumnFamily(family).getScope() != HConstants.REPLICATION_SCOPE_LOCAL
@@ -5293,6 +5335,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
   }
 
   private void checkFamily(final byte[] family) throws NoSuchColumnFamilyException {
+    // 是否有这个
     if (!this.htableDescriptor.hasColumnFamily(family)) {
       throw new NoSuchColumnFamilyException("Column family " + Bytes.toString(family)
         + " does not exist in region " + this + " in table " + this.htableDescriptor);
@@ -5307,12 +5350,14 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
     if (timestampSlop == HConstants.LATEST_TIMESTAMP) {
       return;
     }
+    // 用来判断不新过的now+slop
     long maxTs = now + timestampSlop;
     for (List<Cell> kvs : familyMap.values()) {
       // Optimization: 'foreach' loop is not used. See:
       // HBASE-12023 HRegion.applyFamilyMapToMemstore creates too many iterator objects
       assert kvs instanceof RandomAccess;
       int listSize = kvs.size();
+      // 请求里的cell的timestamp，比当前时间新会报错
       for (int i = 0; i < listSize; i++) {
         Cell cell = kvs.get(i);
         // see if the user-side TS is out of range. latest = server-side

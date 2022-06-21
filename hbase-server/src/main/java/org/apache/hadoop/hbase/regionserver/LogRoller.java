@@ -26,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
+ * 定期检查是否需要回滚WAL
  * Runs periodically to determine if the WAL should be rolled. NOTE: This class extends Thread
  * rather than Chore because the sleep time can be interrupted when there is something to do, rather
  * than the Chore sleep time which is invariant. TODO: change to a pool of threads

@@ -83,6 +83,7 @@ public class MetaRegionLocationCache extends ZKListener {
   public MetaRegionLocationCache(ZKWatcher zkWatcher) {
     super(zkWatcher);
     cachedMetaLocations = new CopyOnWriteArrayMap<>();
+    // 注册listener
     watcher.registerListener(this);
     // Populate the initial snapshot of data from meta znodes.
     // This is needed because stand-by masters can potentially start after the initial znode
@@ -92,6 +93,7 @@ public class MetaRegionLocationCache extends ZKListener {
     ThreadFactory threadFactory = new ThreadFactoryBuilder().setDaemon(true).build();
     RetryCounterFactory retryFactory = new RetryCounterFactory(Integer.MAX_VALUE,
       SLEEP_INTERVAL_MS_BETWEEN_RETRIES, SLEEP_INTERVAL_MS_MAX);
+    // 启动线程从zk获取/hbase/meta-region-server节点
     threadFactory.newThread(() -> loadMetaLocationsFromZk(retryFactory.create(), ZNodeOpType.INIT))
       .start();
   }
@@ -106,6 +108,7 @@ public class MetaRegionLocationCache extends ZKListener {
       List<String> znodes = null;
       while (retryCounter.shouldRetry()) {
         try {
+          // 获取/hbase/meta-region-server的节点名
           znodes = watcher.getMetaReplicaNodesAndWatchChildren();
           break;
         } catch (KeeperException ke) {

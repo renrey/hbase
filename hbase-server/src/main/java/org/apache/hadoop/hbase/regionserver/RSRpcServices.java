@@ -2961,6 +2961,7 @@ public class RSRpcServices extends HBaseRpcServicesBase<HRegionServer>
       checkOpen();
       requestCount.increment();
       rpcMutateRequestCount.increment();
+      // 先找到Region
       HRegion region = getRegion(request.getRegion());
       rejectIfInStandByState(region);
       MutateResponse.Builder builder = MutateResponse.newBuilder();
@@ -3026,13 +3027,15 @@ public class RSRpcServices extends HBaseRpcServicesBase<HRegionServer>
     }
   }
 
+  // put请求处理
   private void put(HRegion region, OperationQuota quota, MutationProto mutation,
     CellScanner cellScanner, ActivePolicyEnforcement spaceQuota) throws IOException {
     long before = EnvironmentEdgeManager.currentTime();
-    Put put = ProtobufUtil.toPut(mutation, cellScanner);
+    Put put = ProtobufUtil.toPut(mutation, cellScanner);//生成请求对象
     checkCellSizeLimit(region, put);
     spaceQuota.getPolicyEnforcement(region).check(put);
     quota.addMutation(put);
+    // 执行put处理
     region.put(put);
 
     MetricsRegionServer metricsRegionServer = server.getMetrics();

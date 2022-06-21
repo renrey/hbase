@@ -29,13 +29,18 @@ import org.apache.yetus.audience.InterfaceAudience;
  * and then doles it out to threads that request slices into the array. These chunks can get pooled
  * as well. See {@link ChunkCreator}.
  * <p>
+ *   基于指针碰撞的分配器，每次分配2M的chunks，这些chunk可以池化
  * The purpose of this is to combat heap fragmentation in the regionserver. By ensuring that all
  * Cells in a given memstore refer only to large chunks of contiguous memory, we ensure that large
  * blocks get freed up when the memstore is flushed.
  * <p>
+ * 主要为了减少 heap内存碎片化的问题。通过把memstore 的所有cell都放到这些在可复用的内存里的chunk，
+ * 可以确保memstore flush时，这些block会被释放
+ *
  * Without the MSLAB, the byte array allocated during insertion end up interleaved throughout the
  * heap, and the old generation gets progressively more fragmented until a stop-the-world compacting
  * collection occurs.
+ * 没有MSLA，新分配的字节数组 会交错在堆中，并且老年代的碎片化现象越来越严重，直到需要stw（GC）
  * <p>
  * This manages the large sized chunks. When Cells are to be added to Memstore, MemStoreLAB's
  * {@link #copyCellInto(Cell)} gets called. This allocates enough size in the chunk to hold this
