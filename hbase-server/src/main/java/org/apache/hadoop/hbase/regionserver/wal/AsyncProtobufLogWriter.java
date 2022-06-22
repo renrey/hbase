@@ -96,6 +96,7 @@ public class AsyncProtobufLogWriter extends AbstractProtobufLogWriter
 
     @Override
     public void writeInt(int i) throws IOException {
+      // FanOutOneBlockAsyncDFSOutput
       out.writeInt(i);
     }
 
@@ -140,12 +141,17 @@ public class AsyncProtobufLogWriter extends AbstractProtobufLogWriter
   public void append(Entry entry) {
     int buffered = output.buffered();
     try {
+      // 写入WAL日志元数据信息
       entry.getKey().getBuilder(compressor).setFollowingKvCount(entry.getEdit().size()).build()
         .writeDelimitedTo(asyncOutputWrapper);
     } catch (IOException e) {
       throw new AssertionError("should not happen", e);
     }
     try {
+      /**
+       * 写入cell内容！！！
+       * @see org.apache.hadoop.hbase.regionserver.wal.WALCellCodec.EnsureKvEncoder#write(org.apache.hadoop.hbase.Cell)
+       */
       for (Cell cell : entry.getEdit().getCells()) {
         cellEncoder.write(cell);
       }

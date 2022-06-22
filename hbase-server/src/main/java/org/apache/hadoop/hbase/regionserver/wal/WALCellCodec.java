@@ -398,7 +398,11 @@ public class WALCellCodec implements Codec {
     public void write(Cell cell) throws IOException {
       checkFlushed();
       // Make sure to write tags into WAL
+      // out: OutputStreamWrapper
+      // 都是写到本地cache中
+      // 先写大小
       ByteBufferUtils.putInt(this.out, KeyValueUtil.getSerializedSize(cell, true));
+      // 再写内容
       KeyValueUtil.oswrite(cell, this.out, true);
     }
   }

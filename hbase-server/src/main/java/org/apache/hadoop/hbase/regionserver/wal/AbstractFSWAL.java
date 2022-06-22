@@ -1133,6 +1133,9 @@ public abstract class AbstractFSWAL<W extends WriterBase> implements WAL {
         i.visitLogEntryBeforeWrite(entry.getRegionInfo(), entry.getKey(), entry.getEdit());
       }
     }
+    /**
+     * append写入( 日志元数据、cell内容)
+     */
     doAppend(writer, entry);
     assert highestUnsyncedTxid < entry.getTxid();
     highestUnsyncedTxid = entry.getTxid();
@@ -1189,6 +1192,9 @@ public abstract class AbstractFSWAL<W extends WriterBase> implements WAL {
     }
   }
 
+  // 生成region的SequenceId+1
+  // 生成事务id（ringbuffer的next Sequence）
+  // 发布事件到ringBuffer
   protected final long stampSequenceIdAndPublishToRingBuffer(RegionInfo hri, WALKeyImpl key,
     WALEdit edits, boolean inMemstore, RingBuffer<RingBufferTruck> ringBuffer) throws IOException {
     if (this.closed) {
@@ -1196,6 +1202,8 @@ public abstract class AbstractFSWAL<W extends WriterBase> implements WAL {
         "Cannot append; log is closed, regionName = " + hri.getRegionNameAsString());
     }
     MutableLong txidHolder = new MutableLong();
+    // 1。事务开始，region的mvcc生成新的SequenceId （+1）
+    // 2。 保存ringBuffer的下一个sequence, 作为事务id
     MultiVersionConcurrencyControl.WriteEntry we = key.getMvcc().begin(() -> {
       txidHolder.setValue(ringBuffer.next());
     });
@@ -1203,9 +1211,12 @@ public abstract class AbstractFSWAL<W extends WriterBase> implements WAL {
     ServerCall<?> rpcCall = RpcServer.getCurrentServerCallWithCellScanner().orElse(null);
     try {
       FSWALEntry entry = new FSWALEntry(txid, key, edits, hri, inMemstore, rpcCall);
+      // 添加region的mvcc的SequenceId
       entry.stampRegionSequenceId(we);
+      // 把实际对象信息放到ringBuffer上的对象
       ringBuffer.get(txid).load(entry);
     } finally {
+      // 发布
       ringBuffer.publish(txid);
     }
     return txid;

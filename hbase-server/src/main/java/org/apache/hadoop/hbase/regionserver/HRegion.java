@@ -310,6 +310,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
   // - the thread that owns the lock (allow reentrancy)
   // - reference count of (reentrant) locks held by the thread
   // - the row itself
+  // row在当前的锁上下文（里面就是当前行的锁）
   private final ConcurrentHashMap<HashedBytes, RowLockContext> lockedRows =
     new ConcurrentHashMap<>();
 
@@ -3524,6 +3525,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
       int readyToWriteCount = 0;
       int lastIndexExclusive = 0;
       RowLock prevRowLock = null;
+      // 遍历操作
       for (; lastIndexExclusive < size(); lastIndexExclusive++) {
         // It reaches the miniBatchSize, stop here and process the miniBatch
         // This only applies to non-atomic batch operations.
@@ -3539,11 +3541,13 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
         // RS handlers, covering both MutationBatchOperation and ReplayBatchOperation
         // The BAD_FAMILY/SANITY_CHECK_FAILURE cases are handled in checkAndPrepare phase and won't
         // pass the isOperationPending check
+        // 获取当前操作涉及到的列族
         Map<byte[], List<Cell>> curFamilyCellMap =
           getMutation(lastIndexExclusive).getFamilyCellMap();
         try {
           // start the protector before acquiring row lock considering performance, and will finish
           // it when encountering exception
+          // 一些并行put的校验，默认没开启并行
           region.storeHotnessProtector.start(curFamilyCellMap);
         } catch (RegionTooBusyException rtbe) {
           region.storeHotnessProtector.finish(curFamilyCellMap);
@@ -3561,6 +3565,11 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
         boolean throwException = false;
         try {
           // if atomic then get exclusive lock, else shared lock
+          /**
+           * 加行锁
+           * 原子的：排他锁
+           * 非原子：共享锁，例如单个put
+           */
           rowLock = region.getRowLock(mutation.getRow(), !isAtomic(), prevRowLock);
         } catch (TimeoutIOException | InterruptedIOException e) {
           // NOTE: We will retry when other exceptions, but we should stop if we receive
@@ -3591,6 +3600,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
           }
           break; // Stop acquiring more rows for this batch
         } else {
+          // 申请锁成功，并且是新锁
           if (rowLock != prevRowLock) {
             // It is a different row now, add this to the acquiredRowLocks and
             // set prevRowLock to the new returned rowLock
@@ -3650,13 +3660,16 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
               || curWALEditForNonce.getFirst().getNonceGroup() != nonceGroup
               || curWALEditForNonce.getFirst().getNonce() != nonce
           ) {
+            // 创建WALEdit
             curWALEditForNonce =
               new Pair<>(new NonceKey(nonceGroup, nonce), createWALEdit(miniBatchOp));
+            // 把这个edit加入列表
             walEdits.add(curWALEditForNonce);
           }
           WALEdit walEdit = curWALEditForNonce.getSecond();
 
           // Add WAL edits from CPs.
+          // 从walEditsFromCoprocessors拿edit(就是checkAndPrepare时生成的)
           WALEdit fromCP = walEditsFromCoprocessors[index];
           List<Cell> cellsFromCP = fromCP == null ? Collections.emptyList() : fromCP.getCells();
           addNonSkipWALMutationsToWALEdit(miniBatchOp, walEdit, cellsFromCP, familyCellMaps[index]);
@@ -4775,6 +4788,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
     try {
       // STEP 1. Try to acquire as many locks as we can and build mini-batch of operations with
       // locked rows
+      // 1. 为batch里的都获取锁（n个）
       miniBatchOp = batchOp.lockRowsAndBuildMiniBatch(acquiredRowLocks);
 
       // We've now grabbed as many mutations off the list as we can
@@ -4801,20 +4815,26 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
       // otherwise, newer puts/deletes/increment/append are not guaranteed to have a newer
       // timestamp
 
+      // 第2步，更新每个操作的timestamp为当前，必须在获取到行锁后更新
       long now = EnvironmentEdgeManager.currentTime();
       batchOp.prepareMiniBatchOperations(miniBatchOp, now, acquiredRowLocks);
 
       // STEP 3. Build WAL edit
 
+      // 第3步，构建WAL edit
       List<Pair<NonceKey, WALEdit>> walEdits = batchOp.buildWALEdits(miniBatchOp);
 
       // STEP 4. Append the WALEdits to WAL and sync.
 
+      // 4 , 把构建好WAL edit写到WAL
       for (Iterator<Pair<NonceKey, WALEdit>> it = walEdits.iterator(); it.hasNext();) {
         Pair<NonceKey, WALEdit> nonceKeyWALEditPair = it.next();
         walEdit = nonceKeyWALEditPair.getSecond();
         NonceKey nonceKey = nonceKeyWALEditPair.getFirst();
 
+        /**
+         * append 写入WAL
+         */
         if (walEdit != null && !walEdit.isEmpty()) {
           writeEntry = doWALAppend(walEdit, batchOp, miniBatchOp, now, nonceKey);
         }
@@ -6992,6 +7012,9 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
       // Keep trying until we have a lock or error out.
       // TODO: do we need to add a time component here?
       while (result == null) {
+        /**
+         * 如果没有，lockedRows创建当前rowkey的锁上下文（可能一批操作操作同一row）
+         */
         rowLockContext = computeIfAbsent(lockedRows, rowKey, () -> new RowLockContext(rowKey));
         // Now try an get the lock.
         // This can fail as
@@ -6999,6 +7022,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
           // For read lock, if the caller has locked the same row previously, it will not try
           // to acquire the same read lock. It simply returns the previous row lock.
           RowLockImpl prevRowLockImpl = (RowLockImpl) prevRowLock;
+          // 这里给的上一个锁，是同一个row的锁（有可能同一行row不同列族），返回
           if (
             (prevRowLockImpl != null)
               && (prevRowLockImpl.getLock() == rowLockContext.readWriteLock.readLock())
@@ -7006,8 +7030,14 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
             success = true;
             return prevRowLock;
           }
+          // 申请readlock
           result = rowLockContext.newReadLock();
         } else {
+          /**
+           * 排他锁，申请write lock
+           * 返回：
+           * @see RowLockImpl
+           */
           result = rowLockContext.newWriteLock();
         }
       }
@@ -7026,6 +7056,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
         }
       }
 
+      // 使用锁对象，进行加锁
       if (timeout <= 0 || !result.getLock().tryLock(timeout, TimeUnit.MILLISECONDS)) {
         String message = "Timed out waiting for lock for row: " + rowKey + " in region "
           + getRegionInfo().getEncodedName();
@@ -7063,6 +7094,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
 
   private RowLock getRowLock(byte[] row, boolean readLock, final RowLock prevRowLock)
     throws IOException {
+    // 加锁
     return TraceUtil.trace(() -> getRowLockInternal(row, readLock, prevRowLock),
       () -> createRegionSpan("Region.getRowLock").setAttribute(ROW_LOCK_READ_LOCK_KEY, readLock));
   }
@@ -7108,7 +7140,9 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
 
     private RowLockImpl getRowLock(Lock l) {
       count.incrementAndGet();
+      // 保证申请lock串行
       synchronized (lock) {
+        // 锁对象封装
         if (usable.get()) {
           return new RowLockImpl(this, l);
         } else {
@@ -8109,17 +8143,30 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
       !walEdit.isReplay() || batchOp.getOrigLogSeqNum() != SequenceId.NO_SEQUENCE_ID,
       "Invalid replay sequence Id for replay WALEdit!");
 
+    // key
     WALKeyImpl walKey = createWALKeyForWALAppend(walEdit.isReplay(), batchOp, now,
       nonceKey.getNonceGroup(), nonceKey.getNonce());
     // don't call the coproc hook for writes to the WAL caused by
     // system lifecycle events like flushes or compactions
+    // 插件先执行
     if (this.coprocessorHost != null && !walEdit.isMetaEdit()) {
       this.coprocessorHost.preWALAppend(walKey, walEdit);
     }
     try {
+      /**
+       * 1。写入WAL
+       */
+      // DualAsyncFSWAL
+      // 写入wAl，并生成事务(把写入事件提交到ringBuffer)
       long txid = this.wal.appendData(this.getRegionInfo(), walKey, walEdit);
       WriteEntry writeEntry = walKey.getWriteEntry();
+      // 集群复制关联
       this.attachRegionReplicationInWALAppend(batchOp, miniBatchOp, walKey, walEdit, writeEntry);
+
+      /**
+       * 2。同步sync WAL
+       * 一般发布sync事件，阻塞等待成功
+       */
       // Call sync on our edit.
       if (txid != 0) {
         sync(txid, batchOp.durability);
@@ -8546,6 +8593,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
    * @throws IOException If anything goes wrong with DFS
    */
   private void sync(long txid, Durability durability) throws IOException {
+    // meta的必须sync完成
     if (this.getRegionInfo().isMetaRegion()) {
       this.wal.sync(txid);
     } else {
@@ -8565,6 +8613,7 @@ public class HRegion implements HeapSize, PropagatingConfigurationObserver, Regi
         case SYNC_WAL:
           this.wal.sync(txid, false);
           break;
+        // 实际一般使用这个
         case FSYNC_WAL:
           this.wal.sync(txid, true);
           break;

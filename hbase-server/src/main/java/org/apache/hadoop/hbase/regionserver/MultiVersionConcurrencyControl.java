@@ -139,7 +139,9 @@ public class MultiVersionConcurrencyControl {
    */
   public WriteEntry begin(Runnable action) {
     synchronized (writeQueue) {
+      // writePoint+1
       long nextWriteNumber = writePoint.incrementAndGet();
+      // entry 加入到队列中
       WriteEntry e = new WriteEntry(nextWriteNumber);
       writeQueue.add(e);
       action.run();

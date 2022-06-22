@@ -437,6 +437,7 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
     for (Iterator<SyncFuture> iter = syncFutures.iterator(); iter.hasNext();) {
       SyncFuture sync = iter.next();
       if (sync.getTxid() <= txid) {
+        // 执行sync
         markFutureDoneAndOffer(sync, txid, null);
         iter.remove();
         finished++;
@@ -478,6 +479,9 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
       long lowestUnackedAppendTxid = unackedAppends.peek().getTxid();
       long doneTxid = Math.max(lowestUnackedAppendTxid - 1, highestSyncedTxid.get());
       highestSyncedTxid.set(doneTxid);
+      /**
+       * sync事件触发：
+       */
       return finishSyncLowerThanTxid(doneTxid);
     }
   }
@@ -488,6 +492,7 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
   }
 
   private void appendAndSync() {
+    // AsyncProtobufLogWriter
     final AsyncWriter writer = this.writer;
     // maybe a sync request is not queued when we issue a sync, so check here to see if we could
     // finish some.
@@ -496,10 +501,12 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
     // this is used to avoid calling peedLast every time on unackedAppends, appendAndAsync is single
     // threaded, this could save us some cycles
     boolean addedToUnackedAppends = false;
+    // 遍历toWriteAppends进行append操作
     for (Iterator<FSWALEntry> iter = toWriteAppends.iterator(); iter.hasNext();) {
       FSWALEntry entry = iter.next();
       boolean appended;
       try {
+        // 真正append
         appended = appendEntry(writer, entry);
       } catch (IOException e) {
         throw new AssertionError("should not happen", e);
@@ -509,6 +516,7 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
       if (appended) {
         // This is possible, when we fail to sync, we will add the unackedAppends back to
         // toWriteAppends, so here we may get an entry which is already in the unackedAppends.
+        // 刚append完，加入到unackedAppends
         if (
           addedToUnackedAppends || unackedAppends.isEmpty()
             || getLastTxid(unackedAppends) < entry.getTxid()
@@ -524,6 +532,7 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
         // There could be other ways to fix, such as changing the logic in the consume method, but
         // it will break the assumption and then (may) lead to a big refactoring. So here let's use
         // this way to fix first, can optimize later.
+        // 超过batch上限，就不继续append了
         if (
           writer.getLength() - fileLengthAtLastSync >= batchSize
             && (addedToUnackedAppends || entry.getTxid() >= getLastTxid(unackedAppends))
@@ -540,11 +549,13 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
       newHighestProcessedAppendTxid = highestProcessedAppendTxid;
     }
 
+    // 每满64k sync一次
     if (writer.getLength() - fileLengthAtLastSync >= batchSize) {
       // sync because buffer size limit.
       sync(writer);
       return;
     }
+    // 没有append，尝试把已经完成sync的更新（不是重要流程）
     if (writer.getLength() == fileLengthAtLastSync) {
       // we haven't written anything out, just advance the highestSyncedSequence since we may only
       // stamped some region sequence id.
@@ -625,33 +636,47 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
     } finally {
       consumeLock.unlock();
     }
+    // 获取本次消费的seq
     long nextCursor = waitingConsumePayloadsGatingSequence.get() + 1;
     for (long cursorBound = waitingConsumePayloads.getCursor(); nextCursor
         <= cursorBound; nextCursor++) {
       if (!waitingConsumePayloads.isPublished(nextCursor)) {
         break;
       }
+      // 通过seq从ringbuffer拿到对象
       RingBufferTruck truck = waitingConsumePayloads.get(nextCursor);
+      /**
+       * 事件处理
+       */
       switch (truck.type()) {
+        // 写入WAL
         case APPEND:
+          // 直接把FSWALEntry加到Deque里
           toWriteAppends.addLast(truck.unloadAppend());
           break;
+        // sync
         case SYNC:
+          // 加入到syncFutures的set里
           syncFutures.add(truck.unloadSync());
           break;
         default:
           LOG.warn("RingBufferTruck with unexpected type: " + truck.type());
           break;
       }
+      // 更新已消费seq
       waitingConsumePayloadsGatingSequence.set(nextCursor);
     }
     if (markerEditOnly()) {
       drainNonMarkerEditsAndFailSyncs();
     }
+    /**
+     * append写、sync
+     */
     appendAndSync();
     if (hasConsumerTask.get()) {
       return;
     }
+    // 必须等没有待append的。。
     if (toWriteAppends.isEmpty()) {
       if (waitingConsumePayloadsGatingSequence.get() == waitingConsumePayloads.getCursor()) {
         consumerScheduled.set(false);
@@ -680,6 +705,7 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
       }
     }
     // reschedule if we still have something to write.
+    // 又异步调用一次
     consumeExecutor.execute(consumer);
   }
 
@@ -703,8 +729,14 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
     if (markerEditOnly() && !edits.isMetaEdit()) {
       throw new IOException("WAL is closing, only marker edit is allowed");
     }
+    /**
+     * 生成region的SequenceId
+     * 生成事务id
+     * 发布事件到ringbuffer
+     */
     long txid =
       stampSequenceIdAndPublishToRingBuffer(hri, key, edits, inMemstore, waitingConsumePayloads);
+    // 发起消费（异步线程）
     if (shouldScheduleConsumer()) {
       consumeExecutor.execute(consumer);
     }
@@ -734,18 +766,22 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
       return;
     }
     // here we do not use ring buffer sequence as txid
+    // 从ringbuffer申请下一个id
     long sequence = waitingConsumePayloads.next();
     SyncFuture future;
     try {
       future = getSyncFuture(txid, forceSync);
+      // 从ringbuffer拿对象，然后把这次信息放到这个对象
       RingBufferTruck truck = waitingConsumePayloads.get(sequence);
       truck.load(future);
     } finally {
+      // 发布sync事件
       waitingConsumePayloads.publish(sequence);
     }
     if (shouldScheduleConsumer()) {
       consumeExecutor.execute(consumer);
     }
+    // 阻塞等待完成
     blockOnSync(future);
   }
 

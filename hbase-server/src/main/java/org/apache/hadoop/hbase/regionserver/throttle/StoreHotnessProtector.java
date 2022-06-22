@@ -124,6 +124,8 @@ public class StoreHotnessProtector {
   }
 
   public void start(Map<byte[], List<Cell>> familyMaps) throws RegionTooBusyException {
+    // 没有开启并行put，就直接跳过
+    // 默认没开启
     if (!isEnable()) {
       return;
     }
@@ -133,6 +135,7 @@ public class StoreHotnessProtector {
     boolean aboveParallelPrePutLimit = false;
 
     for (Map.Entry<byte[], List<Cell>> e : familyMaps.entrySet()) {
+      // 从Region获取对应列族的Store
       Store store = this.region.getStore(e.getKey());
       if (store == null || e.getValue() == null) {
         continue;
@@ -142,11 +145,15 @@ public class StoreHotnessProtector {
 
         // we need to try to add #preparePutCount at first because preparePutToStoreMap will be
         // cleared when changing the configuration.
+        // 当前列族需要有preparePutToStoreMap的计数+1
         int preparePutCount = preparePutToStoreMap
           .computeIfAbsent(e.getKey(), key -> new AtomicInteger()).incrementAndGet();
+        // 列族当前的put超过上限
         boolean storeAboveThread =
           store.getCurrentParallelPutCount() > this.parallelPutToStoreThreadLimit;
+        // prepare put 数超过上限
         boolean storeAbovePrePut = preparePutCount > this.parallelPreparePutToStoreThreadLimit;
+        // 上面2个判断达到一个：代表当前列族tooBusy
         if (storeAboveThread || storeAbovePrePut) {
           tooBusyStore = (tooBusyStore == null
             ? store.getColumnFamilyName()
@@ -162,6 +169,7 @@ public class StoreHotnessProtector {
       }
     }
 
+    // 有tooBusy的列族，报错
     if (aboveParallelThreadLimit || aboveParallelPrePutLimit) {
       String msg = "StoreTooBusy," + this.region.getRegionInfo().getRegionNameAsString() + ":"
         + tooBusyStore + " Above "

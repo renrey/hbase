@@ -45,11 +45,19 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.RegionEventDe
  * Used in HBase's transaction log (WAL) to represent a collection of edits (Cell/KeyValue objects)
  * that came in as a single transaction. All the edits for a given transaction are written out as a
  * single record, in PB format, followed (optionally) by Cells written via the WALCellEncoder.
+ * 在Hbase 的WAL 代表 一组 在同一个事务里的修改对象（edit，关于cell-kv对的对象）的集合。
+ * 一个事务里的所有edit对象会以PB的格式写成一条记录，
+ * 这条记录会被那些通过WALCellEncoder写入的cells 跟踪（followed？）
  * <p>
  * This class is LimitedPrivate for CPs to read-only. The {@link #add} methods are classified as
  * private methods, not for use by CPs.
  * </p>
+ * 这个class 对CP 是LimitedPrivate，只能读。
  * <p>
+ * meta type用来标记那些对key操作的事件，例如compaction、flush、open region.
+ * 这些type不会出现memstore，他们是hbase系统自身生成的edit，不是客户端提交的。他们只能在
+ * WAL被看到，这些meta type形式上不会被指定，或者在一个显示类中生成。
+ *
  * A particular WALEdit 'type' is the 'meta' type used to mark key operational events in the WAL
  * such as compaction, flush, or region open. These meta types do not traverse hbase memstores. They
  * are edits made by the hbase system rather than edit data submitted by clients. They only show in
